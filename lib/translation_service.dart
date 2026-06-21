@@ -35,37 +35,46 @@ class TranslationService {
     debugPrint("[TranslationService] Step 2: done.");
 
     // 3. Load active model
-    debugPrint("[TranslationService] Step 3: getActiveModel(maxTokens=1024, preferredBackend: cpu)...");
+    // maxTokens=512: LiteRT-LM Gemma model has a hard context limit of 512
+    // tokens total (input + output). Exceeding it causes DYNAMIC_UPDATE_SLICE
+    // to fail during KV-cache tensor pre-allocation.
+    debugPrint('[TranslationService] Step 3: getActiveModel(maxTokens=512, preferredBackend: cpu)...');
     _model = await FlutterGemma.getActiveModel(
-      maxTokens: 1024,
+      maxTokens: 512,
       preferredBackend: PreferredBackend.cpu,
     );
-    debugPrint("[TranslationService] Step 3: done. model=$_model");
+    debugPrint('[TranslationService] Step 3: done. model=$_model');
 
     _isInitialized = true;
     debugPrint("[TranslationService] init() complete.");
   }
 
+  /// Max input characters. Prompt boilerplate ~50 tokens + this text must
+  /// fit within the model's 512-token total context window.
+  static const int _maxInputChars = 200;
+
   Future<String> translate(String japaneseText) async {
     if (!_isInitialized || _model == null) {
-      throw StateError("TranslationService is not initialized. Call init() first.");
+      throw StateError('TranslationService is not initialized. Call init() first.');
     }
-    debugPrint("[TranslationService] translate() start. text=${japaneseText.length > 40 ? japaneseText.substring(0, 40) : japaneseText}");
-    // Create a fresh session for this block to avoid chat history bloat and memory leaks
-    debugPrint("[TranslationService] Creating session...");
+    // Guard: truncate oversized input to stay within context window.
+    final safeText = japaneseText.length > _maxInputChars
+        ? japaneseText.substring(0, _maxInputChars)
+        : japaneseText;
+    debugPrint('[TranslationService] translate() chars=${japaneseText.length}→${safeText.length}');
     final session = await _model!.createSession();
-    debugPrint("[TranslationService] Session created.");
     try {
-      final prompt = "Translate the following Japanese text to English. Return only the English translation. Text: $japaneseText";
-      debugPrint("[TranslationService] addQueryChunk...");
+      // Prompt tuned for natural, idiomatic English — not word-for-word.
+      final prompt =
+          'Translate this Japanese text into natural, fluent English. '
+          'Output only the English translation, no explanations.\n'
+          'Japanese: $safeText\nEnglish:';
       await session.addQueryChunk(Message(text: prompt, isUser: true));
-      debugPrint("[TranslationService] getResponse()...");
       final response = await session.getResponse();
-      debugPrint("[TranslationService] getResponse() returned ${response.length} chars.");
-      return response;
+      debugPrint('[TranslationService] response ${response.length} chars.');
+      return response.trim();
     } finally {
       await session.close();
-      debugPrint("[TranslationService] Session closed.");
     }
   }
 
@@ -121,17 +130,19 @@ class TranslationService {
   /// [blocks] is a list of records with text and top-left pixel coordinates.
   static String buildStructuredPrompt(List<({String text, int x, int y})> blocks) {
     final buffer = StringBuffer();
-    buffer.writeln("Translate the following Japanese text blocks captured from an Android screen to English.");
-    buffer.writeln("The coordinates (x, y) represent their top-left pixel locations on the screen.");
-    buffer.writeln("Use these locations to understand the layout context (e.g., adjacent blocks, title vs. body).");
-    buffer.writeln("");
-    buffer.writeln('Output ONLY the translated blocks wrapped in matching XML tags like: <t id="1">translated text</t>.');
-    buffer.writeln("Do not include coordinates in the output. Do not write any other explanations.");
-    buffer.writeln("");
-    buffer.writeln("Input:");
+    buffer.writeln('Translate these Japanese UI text blocks into natural, fluent English.');
+    buffer.writeln('The (x, y) coordinates show where each block appears on screen — use them for layout context.');
+    buffer.writeln('Output ONLY the translations inside matching XML tags: <t id="N">translation</t>');
+    buffer.writeln('No explanations. No notes. No extra text.');
+    buffer.writeln('');
+    buffer.writeln('Input:');
     for (int i = 0; i < blocks.length; i++) {
       final block = blocks[i];
-      buffer.writeln('<t id="${i + 1}" x="${block.x}" y="${block.y}">${block.text}</t>');
+      // Truncate each block to stay within context budget
+      final safeText = block.text.length > _maxInputChars
+          ? block.text.substring(0, _maxInputChars)
+          : block.text;
+      buffer.writeln('<t id="${i + 1}" x="${block.x}" y="${block.y}">$safeText</t>');
     }
     return buffer.toString();
   }

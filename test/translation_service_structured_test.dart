@@ -11,7 +11,7 @@ void main() {
     final prompt = TranslationService.buildStructuredPrompt(blocks);
     expect(prompt, contains('<t id="1" x="10" y="20">こんにちは</t>'));
     expect(prompt, contains('<t id="2" x="10" y="80">お元気ですか？</t>'));
-    expect(prompt, contains('Output ONLY the translated blocks wrapped in matching XML tags'));
+    expect(prompt, contains('natural, fluent English'));
   });
 
   test('parseStructuredResponse parses valid XML successfully', () {

@@ -53,7 +53,7 @@ void main() {
     expect(result, equals('Hello'));
     expect(mockSession.queries, hasLength(1));
     expect(mockSession.queries.first.text, contains('こんにちは'));
-    expect(mockSession.queries.first.text, contains('Translate the following Japanese text to English'));
+    expect(mockSession.queries.first.text, contains('natural, fluent English'));
     expect(mockSession.queries.first.isUser, isTrue);
     expect(mockSession.isClosed, isTrue);
   });
