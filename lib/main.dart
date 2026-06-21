@@ -8,8 +8,10 @@ import 'package:screen_translate/translation_service.dart';
 import 'package:screen_translate/capture_service.dart';
 import 'package:screen_translate/overlay_painter.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Start listener and model init in the background; UI starts immediately.
+  unawaited(_initServicesAndListenForCapture());
   runApp(const MyApp());
 }
 
@@ -49,6 +51,117 @@ final _ocrService = OcrService();
 final _translationService = TranslationService();
 final _captureService = CaptureService();
 
+/// Notifies the dashboard UI of model load state changes.
+final _modelStatusNotifier = ValueNotifier<({bool ready, String message})>(
+  (ready: false, message: "Checking Gemma model..."),
+);
+
+bool _isTranslationInProgress = false;
+
+Future<void> _runTranslationFlowAndSendToOverlay() async {
+  if (!_modelStatusNotifier.value.ready) {
+    await FlutterOverlayWindow.shareData({
+      "status": "error",
+      "message": "Gemma model not ready. Please open the main app dashboard.",
+    });
+    return;
+  }
+
+  if (_isTranslationInProgress) {
+    debugPrint("[Main] Translation already in progress. Ignoring request.");
+    return;
+  }
+  _isTranslationInProgress = true;
+  debugPrint("[Main] Capture request received. Starting translation flow.");
+
+  try {
+    final captureData = await _captureService.captureScreen();
+    if (captureData == null) {
+      debugPrint("[Main] captureScreen() returned null.");
+      await FlutterOverlayWindow.shareData({"status": "no_text"});
+      return;
+    }
+
+    final path = captureData['path'] as String;
+    final imageWidth = (captureData['width'] as num).toDouble();
+    final imageHeight = (captureData['height'] as num).toDouble();
+    debugPrint("[Main] Screen captured: $path ($imageWidth x $imageHeight)");
+
+    final ocrBlocks = await _ocrService.extractText(path);
+    debugPrint("[Main] OCR found ${ocrBlocks.length} blocks.");
+    if (ocrBlocks.isEmpty) {
+      await FlutterOverlayWindow.shareData({"status": "no_text"});
+      return;
+    }
+
+    final blockRecords = ocrBlocks.map((b) => (
+      text: b.text,
+      x: b.boundingBox.left.toInt(),
+      y: b.boundingBox.top.toInt(),
+    )).toList();
+    final translatedTexts = await _translationService.translateBatch(blockRecords);
+    debugPrint("[Main] Translated ${translatedTexts.length} blocks.");
+
+    final List<Map<String, dynamic>> list = [];
+    for (int i = 0; i < ocrBlocks.length; i++) {
+      final block = ocrBlocks[i];
+      final rect = block.boundingBox;
+      final text = (i < translatedTexts.length && translatedTexts[i].isNotEmpty)
+          ? translatedTexts[i]
+          : block.text;
+      list.add({
+        'text': text,
+        'rect': [rect.left, rect.top, rect.right, rect.bottom],
+      });
+    }
+
+    await FlutterOverlayWindow.shareData({
+      "status": "success",
+      "translations": list,
+      "imageWidth": imageWidth,
+      "imageHeight": imageHeight,
+    });
+  } catch (e) {
+    debugPrint("[Main] Translation flow error: $e");
+    await FlutterOverlayWindow.shareData({
+      "status": "error",
+      "message": "Capture failed: ${e.toString()}",
+    });
+  } finally {
+    _isTranslationInProgress = false;
+  }
+}
+
+Future<void> _initServicesAndListenForCapture() async {
+  // Set listener FIRST — before any await — so it's active as early as possible.
+  FlutterOverlayWindow.overlayListener.listen((data) async {
+    debugPrint("[Main] overlayListener received: $data");
+    if (data == "capture") {
+      await _runTranslationFlowAndSendToOverlay();
+    }
+  });
+
+  final docDir = await getApplicationDocumentsDirectory();
+  final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
+  final modelExists = await File(modelPath).exists();
+
+  if (modelExists) {
+    try {
+      _modelStatusNotifier.value = (ready: false, message: "Loading Gemma model into memory...");
+      await _translationService.init(modelPath);
+      _modelStatusNotifier.value = (ready: true, message: "Gemma model loaded and ready.");
+      debugPrint("[Main] Model initialized successfully.");
+    } catch (e) {
+      _modelStatusNotifier.value = (ready: false, message: "Failed to load model: $e");
+    }
+  } else {
+    _modelStatusNotifier.value = (
+      ready: false,
+      message: "Gemma Model Missing!\nPlace 'gemma-4-E2B-it.litertlm' (2.58 GB) in documents folder:\n$modelPath",
+    );
+  }
+}
+
 class MainDashboardScreen extends StatefulWidget {
   const MainDashboardScreen({super.key});
 
@@ -59,132 +172,17 @@ class MainDashboardScreen extends StatefulWidget {
 class _MainDashboardScreenState extends State<MainDashboardScreen> {
   bool _overlayPermissionGranted = false;
   bool _isOverlayRunning = false;
-  bool _isModelReady = false;
-  String _modelStatusMessage = "Checking Gemma model...";
-  bool _isTranslationInProgress = false;
-  
-  StreamSubscription? _mainListenerSubscription;
 
   @override
   void initState() {
     super.initState();
     _checkPermissions();
-    _initServices();
+    _syncOverlayState();
   }
 
-  Future<void> _initServices() async {
-    // 1. Check current overlay active state to synchronize dashboard button state
+  Future<void> _syncOverlayState() async {
     final active = await FlutterOverlayWindow.isActive();
-    setState(() {
-      _isOverlayRunning = active;
-    });
-
-    // 2. Resolve local documents directory for model path to avoid Android crash
-    final docDir = await getApplicationDocumentsDirectory();
-    final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
-    final modelExists = await File(modelPath).exists();
-    
-    if (modelExists) {
-      try {
-        setState(() {
-          _modelStatusMessage = "Loading Gemma model into memory...";
-        });
-        await _translationService.init(modelPath);
-        setState(() {
-          _isModelReady = true;
-          _modelStatusMessage = "Gemma model loaded and ready.";
-        });
-      } catch (e) {
-        setState(() {
-          _isModelReady = false;
-          _modelStatusMessage = "Failed to load model: $e";
-        });
-      }
-    } else {
-      setState(() {
-        _isModelReady = false;
-        _modelStatusMessage = "Gemma Model Missing!\nPlace 'gemma-4-E2B-it.litertlm' (2.58 GB) in documents folder:\n$modelPath";
-      });
-    }
-
-    // 3. Listen to capture requests sent from the overlay window isolate
-    _mainListenerSubscription = FlutterOverlayWindow.overlayListener.listen((data) async {
-      if (data == "capture") {
-        await _runTranslationFlowAndSendToOverlay();
-      }
-    });
-  }
-
-  Future<void> _runTranslationFlowAndSendToOverlay() async {
-    if (!_isModelReady) {
-      await FlutterOverlayWindow.shareData({
-        "status": "error",
-        "message": "Gemma model not ready. Please open the main app dashboard.",
-      });
-      return;
-    }
-
-    if (_isTranslationInProgress) {
-      debugPrint("Translation already in progress. Ignoring request.");
-      return;
-    }
-    _isTranslationInProgress = true;
-
-    try {
-      final captureData = await _captureService.captureScreen();
-      if (captureData == null) {
-        await FlutterOverlayWindow.shareData({"status": "no_text"});
-        return;
-      }
-
-      final path = captureData['path'] as String;
-      final imageWidth = (captureData['width'] as num).toDouble();
-      final imageHeight = (captureData['height'] as num).toDouble();
-
-      final ocrBlocks = await _ocrService.extractText(path);
-      if (ocrBlocks.isEmpty) {
-        await FlutterOverlayWindow.shareData({"status": "no_text"});
-        return;
-      }
-
-      // Translate blocks in bulk using structured XML with layout coordinates
-      final blockRecords = ocrBlocks.map((b) => (
-        text: b.text,
-        x: b.boundingBox.left.toInt(),
-        y: b.boundingBox.top.toInt(),
-      )).toList();
-      final translatedTexts = await _translationService.translateBatch(blockRecords);
-
-      final List<Map<String, dynamic>> list = [];
-      for (int i = 0; i < ocrBlocks.length; i++) {
-        final block = ocrBlocks[i];
-        final rect = block.boundingBox;
-        final text = (i < translatedTexts.length && translatedTexts[i].isNotEmpty)
-            ? translatedTexts[i]
-            : block.text; // Fallback to original Japanese if translation failed
-        
-        list.add({
-          'text': text,
-          'rect': [rect.left, rect.top, rect.right, rect.bottom],
-        });
-      }
-
-      await FlutterOverlayWindow.shareData({
-        "status": "success",
-        "translations": list,
-        "imageWidth": imageWidth,
-        "imageHeight": imageHeight,
-      });
-
-    } catch (e) {
-      debugPrint("Translation flow error in main isolate: $e");
-      await FlutterOverlayWindow.shareData({
-        "status": "error",
-        "message": "Capture failed: ${e.toString()}",
-      });
-    } finally {
-      _isTranslationInProgress = false;
-    }
+    if (mounted) setState(() => _isOverlayRunning = active);
   }
 
   Future<void> _checkPermissions() async {
@@ -255,39 +253,44 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Model Status Info Card
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xff1e1e2e),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _isModelReady ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
-                    width: 2,
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    Icon(
-                      _isModelReady ? Icons.check_circle : Icons.warning,
-                      size: 48,
-                      color: _isModelReady ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      "Translation Model Status",
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _modelStatusMessage,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: _isModelReady ? const Color(0xffa6adc8) : const Color(0xfff38ba8),
-                        fontSize: 13,
+              ValueListenableBuilder(
+                valueListenable: _modelStatusNotifier,
+                builder: (context, status, _) {
+                  return Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xff1e1e2e),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: status.ready ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
+                        width: 2,
                       ),
                     ),
-                  ],
-                ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          status.ready ? Icons.check_circle : Icons.warning,
+                          size: 48,
+                          color: status.ready ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          "Translation Model Status",
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          status.message,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: status.ready ? const Color(0xffa6adc8) : const Color(0xfff38ba8),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 24),
               // Translator Details Card
@@ -345,7 +348,6 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
 
   @override
   void dispose() {
-    _mainListenerSubscription?.cancel();
     super.dispose();
   }
 }
