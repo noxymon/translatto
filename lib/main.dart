@@ -421,19 +421,24 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
             );
           }).toList();
 
+          final double imageWidth = (data["imageWidth"] as num).toDouble();
+          final double imageHeight = (data["imageHeight"] as num).toDouble();
+
           setState(() {
             _isTranslating = false;
             _translations = list;
-            _imageSize = Size(
-              (data["imageWidth"] as num).toDouble(),
-              (data["imageHeight"] as num).toDouble(),
-            );
+            _imageSize = Size(imageWidth, imageHeight);
             _showTranslationLayer = true;
             _errorMessage = null;
           });
 
-          // Resize overlay size to fullscreen to display translations
-          FlutterOverlayWindow.resizeOverlay(-1, -1, false);
+          // Resize overlay size to fullscreen to display translations using positive logical dimensions
+          // to bypass the typo bug in flutter_overlay_window which causes a crash with negative inputs.
+          if (!mounted) return;
+          final double devicePixelRatio = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
+          final int widthDp = (imageWidth / devicePixelRatio).round();
+          final int heightDp = (imageHeight / devicePixelRatio).round();
+          FlutterOverlayWindow.resizeOverlay(widthDp, heightDp, false);
         }
       }
     });
