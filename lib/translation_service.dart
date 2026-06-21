@@ -35,8 +35,11 @@ class TranslationService {
     debugPrint("[TranslationService] Step 2: done.");
 
     // 3. Load active model
-    debugPrint("[TranslationService] Step 3: getActiveModel(maxTokens=1024)...");
-    _model = await FlutterGemma.getActiveModel(maxTokens: 1024);
+    debugPrint("[TranslationService] Step 3: getActiveModel(maxTokens=1024, preferredBackend: cpu)...");
+    _model = await FlutterGemma.getActiveModel(
+      maxTokens: 1024,
+      preferredBackend: PreferredBackend.cpu,
+    );
     debugPrint("[TranslationService] Step 3: done. model=$_model");
 
     _isInitialized = true;
