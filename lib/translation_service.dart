@@ -17,6 +17,7 @@ class TranslationService {
     // 2. Set the local model file as the active model
     await FlutterGemma.installModel(
       modelType: ModelType.gemmaIt,
+      fileType: ModelFileType.litertlm,
     ).fromFile(modelPath).install();
 
     // 3. Load active model
