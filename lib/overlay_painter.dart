@@ -45,6 +45,7 @@ class OverlayPainter extends CustomPainter {
       );
 
       // Draw translated English text inside coordinates
+      final double textMaxWidth = (scaledRect.width - 8).clamp(0.0, double.infinity);
       final textPainter = TextPainter(
         text: TextSpan(
           text: block.text,
@@ -52,7 +53,7 @@ class OverlayPainter extends CustomPainter {
         ),
         textDirection: TextDirection.ltr,
       );
-      textPainter.layout(maxWidth: scaledRect.width);
+      textPainter.layout(maxWidth: textMaxWidth);
 
       // Adjust the background rectangle's height dynamically based on the larger of scaledRect.height or textPainter.height (with padding)
       final dynamicHeight = textPainter.height > scaledRect.height 

@@ -227,8 +227,8 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
         enableDrag: true,
         flag: OverlayFlag.defaultFlag,
         alignment: OverlayAlignment.centerRight,
-        height: 120,
-        width: 120,
+        height: 140,
+        width: 140,
       );
       setState(() {
         _isOverlayRunning = true;
@@ -245,93 +245,95 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Model Status Info Card
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: const Color(0xff1e1e2e),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: _isModelReady ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
-                  width: 2,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Model Status Info Card
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xff1e1e2e),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _isModelReady ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
+                    width: 2,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      _isModelReady ? Icons.check_circle : Icons.warning,
+                      size: 48,
+                      color: _isModelReady ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "Translation Model Status",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _modelStatusMessage,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _isModelReady ? const Color(0xffa6adc8) : const Color(0xfff38ba8),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Column(
-                children: [
-                  Icon(
-                    _isModelReady ? Icons.check_circle : Icons.warning,
-                    size: 48,
-                    color: _isModelReady ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "Translation Model Status",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _modelStatusMessage,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: _isModelReady ? const Color(0xffa6adc8) : const Color(0xfff38ba8),
-                      fontSize: 13,
+              const SizedBox(height: 24),
+              // Translator Details Card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xff1e1e2e),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xff313244)),
+                ),
+                child: const Column(
+                  children: [
+                    Icon(Icons.translate, size: 48, color: Color(0xff89b4fa)),
+                    SizedBox(height: 12),
+                    Text(
+                      "Japanese to English",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
-                  ),
-                ],
+                    SizedBox(height: 6),
+                    Text(
+                      "Offline Gemma 4 LiteRT-LM translation",
+                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 24),
-            // Translator Details Card
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xff1e1e2e),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xff313244)),
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: _overlayPermissionGranted ? null : _requestPermission,
+                icon: const Icon(Icons.security),
+                label: Text(_overlayPermissionGranted ? "Overlay Permission Granted" : "Grant Overlay Permission"),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: const Color(0xffa6e3a1),
+                  foregroundColor: const Color(0xff11111b),
+                ),
               ),
-              child: const Column(
-                children: [
-                  Icon(Icons.translate, size: 48, color: Color(0xff89b4fa)),
-                  SizedBox(height: 12),
-                  Text(
-                    "Japanese to English",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    "Offline Gemma 4 LiteRT-LM translation",
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
-                  ),
-                ],
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _toggleOverlay,
+                icon: Icon(_isOverlayRunning ? Icons.stop : Icons.play_arrow),
+                label: Text(_isOverlayRunning ? "Stop Screen Overlay" : "Start Screen Overlay"),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: _isOverlayRunning ? const Color(0xfff38ba8) : const Color(0xff89b4fa),
+                  foregroundColor: const Color(0xff11111b),
+                ),
               ),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton.icon(
-              onPressed: _overlayPermissionGranted ? null : _requestPermission,
-              icon: const Icon(Icons.security),
-              label: Text(_overlayPermissionGranted ? "Overlay Permission Granted" : "Grant Overlay Permission"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: const Color(0xffa6e3a1),
-                foregroundColor: const Color(0xff11111b),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _toggleOverlay,
-              icon: Icon(_isOverlayRunning ? Icons.stop : Icons.play_arrow),
-              label: Text(_isOverlayRunning ? "Stop Screen Overlay" : "Start Screen Overlay"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: _isOverlayRunning ? const Color(0xfff38ba8) : const Color(0xff89b4fa),
-                foregroundColor: const Color(0xff11111b),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -443,7 +445,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
       _translations = [];
     });
     // Restore window layout back to small FAB trigger dimensions
-    await FlutterOverlayWindow.resizeOverlay(120, 120, true);
+    await FlutterOverlayWindow.resizeOverlay(140, 140, true);
   }
 
   @override
@@ -488,7 +490,14 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                 ),
                 child: Center(
                   child: _isTranslating
-                      ? const CircularProgressIndicator(color: Color(0xff89b4fa))
+                      ? const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(
+                            color: Color(0xff89b4fa),
+                            strokeWidth: 3,
+                          ),
+                        )
                       : const Icon(Icons.g_translate, color: Color(0xff89b4fa), size: 36),
                 ),
               ),
