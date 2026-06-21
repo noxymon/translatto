@@ -1,0 +1,107 @@
+<h2>Overlay Alignment & Block Stacking Options</h2>
+<p class="subtitle">Select the preferred design approaches to resolve the translation shift and text stacking issues.</p>
+
+<div class="section">
+  <h3>1. Overlay Alignment & Status Bar Cropping</h3>
+  <p>To fix the layout shift where translation boxes do not align with original Japanese text, we propose matching coordinate spaces by cropping the status bar from screenshots and letting the overlay start directly below it.</p>
+  
+  <div class="options">
+    <div class="option" data-choice="alignment_a" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Option A (Recommended): Crop Status Bar + Standard Overlay</h3>
+        <p>In Kotlin, retrieve the system <code>status_bar_height</code> and crop it from the screenshot before OCR. The overlay window also starts below the status bar, resulting in a perfect 1-to-1 coordinate match without any complex calculations or status bar window flags.</p>
+        <div class="pros-cons">
+          <div class="pros">
+            <ul>
+              <li>Perfect, pixel-exact text alignment on all devices</li>
+              <li>Status bar elements (time/wifi) are excluded from OCR</li>
+              <li>Very simple mathematical logic (uniform scaling)</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <ul>
+              <li>If a device has a large navigation bar, the very bottom might have a tiny offset</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="option" data-choice="alignment_b" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Option B: Fullscreen Overlay (Covers Status Bar) + No Cropping</h3>
+        <p>Do not crop the screenshot, but set window layout flags in Android to force the overlay window to extend into the status bar area (fullscreen).</p>
+        <div class="pros-cons">
+          <div class="pros">
+            <ul>
+              <li>Covers the entire screen area</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <ul>
+              <li>Hard to draw over status bar reliably on all Android versions</li>
+              <li>Notches/cutouts make drawing text at the very top problematic</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. Preventing Stacked / Overlapping Translations</h3>
+  <p>When English translations are longer than the original Japanese blocks, they expand and overlap vertically. We propose two approaches to prevent this.</p>
+
+  <div class="options">
+    <div class="option" data-choice="merge_a" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Option A (Recommended): Pre-Merge Adjacent OCR Blocks</h3>
+        <p>Before translating, merge OCR blocks that belong to the same paragraph or line (based on close vertical distance and horizontal alignment). Then translate and render the merged block as a single box.</p>
+        <div class="pros-cons">
+          <div class="pros">
+            <ul>
+              <li>Improves translation quality dramatically (Gemma receives full sentences)</li>
+              <li>Naturally prevents overlapping/stacking of adjacent text lines</li>
+              <li>Fewer boxes render, making the screen look clean and premium</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <ul>
+              <li>Requires a custom grouping algorithm in Dart</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="option" data-choice="merge_b" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Option B: Shift Non-Merged Blocks at Render-Time</h3>
+        <p>Keep blocks separate, but adjust coordinates dynamically during painting to push overlapping boxes downwards.</p>
+        <div class="pros-cons">
+          <div class="pros">
+            <ul>
+              <li>Keeps translation calls simple (no grouping logic)</li>
+            </ul>
+          </div>
+          <div class="cons">
+            <ul>
+              <li>Translating fragmented lines yields lower quality translations</li>
+              <li>Shifting boxes away from original text makes them hard to associate</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>3. Hiding the FAB during Screenshots</h3>
+  <p>To prevent the floating overlay trigger button from appearing in the screen capture, we will resize the overlay window to <code>1x1</code> pixel immediately upon clicking, wait 100ms for the Android window manager to refresh, take the screenshot, and then restore it to full screen (on success) or <code>140x140</code> (on error/no-text).</p>
+</div>

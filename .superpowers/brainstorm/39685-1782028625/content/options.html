@@ -1,0 +1,74 @@
+<h2>Layout & Gesture Design for Dismissing Translation Layer</h2>
+<p class="subtitle">Select the preferred design option for the close button and swipe-to-dismiss interaction.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Floating Close FAB (Bottom-Right) + Swipe Up Dismiss</h3>
+      <p>A simple circular Close Button (FAB) in the bottom-right corner. Swiping up anywhere on the screen also dismisses the layer. Clean and unobtrusive.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Bottom Dismiss Bar (Close Button + Swipe Handle Indicator)</h3>
+      <p>A semi-transparent bottom bar featuring a clear "Close" action in the bottom-right, alongside a centralized arrow/drag-handle visual indicating the swipe-up gesture is supported. High discoverability.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Minimal Floating Chip (Bottom-Right) + Dual-Swipe Dismiss</h3>
+      <p>A small pill-shaped chip containing "Close ×" in the bottom-right. Dismisses on either swipe up or swipe down gesture, offering maximum flexibility.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Interactive UI Layout Preview</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Option A Preview (Minimal FAB)</div>
+      <div class="mockup-body" style="background: #1e1e2e; height: 320px; position: relative; border-radius: 8px; overflow: hidden; padding: 16px; color: #cdd6f4;">
+        <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.1);">
+          <span style="color: #a6e3a1; font-weight: bold;">[Translated Text]</span>
+          <p style="margin: 4px 0 0 0; font-size: 14px;">"Welcome to the screen translation app!"</p>
+        </div>
+        
+        <!-- Swipe indicator helper -->
+        <div style="position: absolute; top: 30%; left: 0; right: 0; text-align: center; color: rgba(255,255,255,0.3); font-size: 12px;">
+          <span style="font-size: 20px;">↑</span><br>Swipe up to dismiss
+        </div>
+
+        <!-- Floating Close button bottom right -->
+        <div style="position: absolute; bottom: 16px; right: 16px; width: 48px; height: 48px; border-radius: 50%; background: #f38ba8; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer;">
+          <span style="color: #11111b; font-size: 24px; font-weight: bold; line-height: 1;">×</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mockup">
+      <div class="mockup-header">Option B Preview (Dismiss Bar)</div>
+      <div class="mockup-body" style="background: #1e1e2e; height: 320px; position: relative; border-radius: 8px; overflow: hidden; padding: 16px; color: #cdd6f4;">
+        <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.1);">
+          <span style="color: #a6e3a1; font-weight: bold;">[Translated Text]</span>
+          <p style="margin: 4px 0 0 0; font-size: 14px;">"Welcome to the screen translation app!"</p>
+        </div>
+
+        <!-- Bottom dismiss bar -->
+        <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 60px; background: rgba(30, 30, 46, 0.95); border-top: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: space-between; padding: 0 16px;">
+          <div style="display: flex; flex-direction: column; align-items: center; margin-left: auto; margin-right: auto; padding-left: 50px;">
+            <span style="font-size: 12px; color: rgba(255,255,255,0.5); line-height: 1;">▲</span>
+            <span style="font-size: 11px; color: rgba(255,255,255,0.5); font-weight: bold; margin-top: 2px;">SWIPE UP</span>
+          </div>
+          <button style="background: #89b4fa; border: none; color: #11111b; font-weight: bold; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -61,6 +61,7 @@ final _modelStatusNotifier = ValueNotifier<({bool ready, String message})>(
 );
 
 bool _isTranslationInProgress = false;
+bool _cancelRequested = false;
 
 Future<void> _runTranslationFlowAndSendToOverlay() async {
   if (!_modelStatusNotifier.value.ready) {
@@ -76,11 +77,16 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     return;
   }
   _isTranslationInProgress = true;
+  _cancelRequested = false;
   debugPrint("[Main] Capture request received. Starting translation flow.");
 
   try {
+    if (_cancelRequested) return;
     final captureData = await _captureService.captureScreen();
+    if (_cancelRequested) return;
     await OverlayBridge.send({"status": "capturing_done"});
+    if (_cancelRequested) return;
+
     if (captureData == null) {
       debugPrint("[Main] captureScreen() returned null.");
       await OverlayBridge.send({"status": "no_text"});
@@ -94,6 +100,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     debugPrint("[Main] Screen captured: $path ($imageWidth x $imageHeight) cropY=$cropY");
 
     final ocrBlocks = await _ocrService.extractText(path);
+    if (_cancelRequested) return;
     debugPrint("[Main] OCR found ${ocrBlocks.length} blocks.");
     if (ocrBlocks.isEmpty) {
       await OverlayBridge.send({"status": "no_text"});
@@ -105,7 +112,11 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       x: b.boundingBox.left.toInt(),
       y: b.boundingBox.top.toInt(),
     )).toList();
-    final translatedTexts = await _translationService.translateBatch(blockRecords);
+    final translatedTexts = await _translationService.translateBatch(
+      blockRecords,
+      isCancelled: () => _cancelRequested,
+    );
+    if (_cancelRequested) return;
     debugPrint("[Main] Translated ${translatedTexts.length} blocks.");
 
     final List<Map<String, dynamic>> list = [];
@@ -129,6 +140,10 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       "cropY": cropY,
     });
   } catch (e) {
+    if (_cancelRequested) {
+      debugPrint("[Main] Translation flow clean abort due to cancellation.");
+      return;
+    }
     debugPrint("[Main] Translation flow error: $e");
     await OverlayBridge.send({
       "status": "error",
@@ -147,6 +162,8 @@ Future<void> _initServicesAndListenForCapture() async {
       debugPrint("[Main] OverlayBridge received: $data (type: ${data.runtimeType})");
       if (data == "capture") {
         await _runTranslationFlowAndSendToOverlay();
+      } else if (data == "cancel") {
+        _cancelRequested = true;
       } else if (data == "open_app") {
         try {
           await const MethodChannel('id.web.noxymon.translatto/capture').invokeMethod('openApp');
@@ -487,15 +504,18 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
 
   Future<void> _startTranslationFlow() async {
     debugPrint("[Overlay] _startTranslationFlow() called. _isTranslating=$_isTranslating");
-    if (_isTranslating) return;
+    if (_isTranslating) {
+      await _cancelTranslationFlow();
+      return;
+    }
     setState(() {
       _isTranslating = true;
       _errorMessage = null;
     });
 
-    // Start a 45-second request watchdog timeout to prevent perpetual spinner if the main app is dead/killed
+    // Start a 120-second request watchdog timeout to prevent perpetual spinner if the main app is dead/killed
     _translationTimeoutTimer?.cancel();
-    _translationTimeoutTimer = Timer(const Duration(seconds: 45), () {
+    _translationTimeoutTimer = Timer(const Duration(seconds: 120), () {
       if (mounted && _isTranslating) {
         setState(() {
           _isTranslating = false;
@@ -523,6 +543,11 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
     // Wait 100 milliseconds
     await Future.delayed(const Duration(milliseconds: 100));
 
+    if (!_isTranslating) {
+      debugPrint("[Overlay] Translation flow was cancelled before capture request was sent.");
+      return;
+    }
+
     // Request translation from the main app isolate
     debugPrint("[Overlay] Calling OverlayBridge.send('capture')...");
     try {
@@ -530,6 +555,24 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
       debugPrint("[Overlay] OverlayBridge.send('capture') completed");
     } catch (e) {
       debugPrint("[Overlay] OverlayBridge.send ERROR: $e");
+    }
+  }
+
+  Future<void> _cancelTranslationFlow() async {
+    debugPrint("[Overlay] Cancelling translation flow.");
+    _translationTimeoutTimer?.cancel();
+    setState(() {
+      _isTranslating = false;
+    });
+    try {
+      await FlutterOverlayWindow.resizeOverlay(140, 140, true);
+    } catch (e) {
+      debugPrint("[Overlay] Failed to resize overlay: $e");
+    }
+    try {
+      await OverlayBridge.send("cancel");
+    } catch (e) {
+      debugPrint("[Overlay] Failed to send cancel request: $e");
     }
   }
 
@@ -546,67 +589,55 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   @override
   Widget build(BuildContext context) {
     if (_showMenu) {
-      return Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Center(
+      return Material(
+        color: Colors.transparent,
+        child: Center(
           child: Container(
-            width: 200,
-            height: 180,
-            padding: const EdgeInsets.all(16),
+            width: 170,
+            height: 70,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
               color: const Color(0xff1e1e2e).withAlpha(240),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(color: const Color(0xff89b4fa), width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(128),
+                  blurRadius: 8,
+                  spreadRadius: 2,
+                )
+              ],
             ),
-            child: Column(
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                const Text(
-                  "Overlay Options",
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      OverlayBridge.send("open_app");
-                      setState(() {
-                        _showMenu = false;
-                      });
-                      FlutterOverlayWindow.resizeOverlay(140, 140, true);
-                    },
-                    icon: const Icon(Icons.open_in_new, size: 16),
-                    label: const Text("Go to Main App"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xff89b4fa),
-                      foregroundColor: const Color(0xff11111b),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      OverlayBridge.send("stop_and_exit");
-                    },
-                    icon: const Icon(Icons.exit_to_app, size: 16),
-                    label: const Text("Stop & Exit"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xfff38ba8),
-                      foregroundColor: const Color(0xff11111b),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                  ),
-                ),
-                TextButton(
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.grey, size: 24),
                   onPressed: () {
                     setState(() {
                       _showMenu = false;
                     });
                     FlutterOverlayWindow.resizeOverlay(140, 140, true);
                   },
-                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                  tooltip: 'Back',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.open_in_new, color: Color(0xff89b4fa), size: 24),
+                  onPressed: () {
+                    OverlayBridge.send("open_app");
+                    setState(() {
+                      _showMenu = false;
+                    });
+                    FlutterOverlayWindow.resizeOverlay(140, 140, true);
+                  },
+                  tooltip: 'Go to Main App',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.exit_to_app, color: Color(0xfff38ba8), size: 24),
+                  onPressed: () {
+                    OverlayBridge.send("stop_and_exit");
+                  },
+                  tooltip: 'Stop & Exit',
                 ),
               ],
             ),
@@ -665,7 +696,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                 setState(() {
                   _showMenu = true;
                 });
-                await FlutterOverlayWindow.resizeOverlay(220, 200, false);
+                await FlutterOverlayWindow.resizeOverlay(180, 90, false);
               },
               child: Container(
                 width: 80,

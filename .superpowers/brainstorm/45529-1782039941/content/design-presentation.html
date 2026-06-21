@@ -1,0 +1,75 @@
+<h2>Technical Design Specifications</h2>
+<p class="subtitle">Please review the details for the three components we will implement.</p>
+
+<div class="section">
+  <h3>Component 1: Kotlin Status Bar Cropping (Android)</h3>
+  <p>Modify <code>processImageAndReply</code> inside <code>MediaProjectionService.kt</code> to calculate the physical status bar height and crop it from the screenshot before saving.</p>
+  <div class="mockup">
+    <div class="mockup-header">Kotlin Execution Logic</div>
+    <div class="mockup-body">
+      <pre style="margin:0; font-family: monospace; font-size:12px; color:#cdd6f4;">
+// 1. Resolve status bar height in physical pixels
+val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+val statusBarHeight = if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+
+// 2. Crop bitmap vertically
+val cleanBitmap = if (rowPadding == 0) {
+    if (statusBarHeight > 0 && statusBarHeight < height) {
+        Bitmap.createBitmap(bitmap, 0, statusBarHeight, width, height - statusBarHeight)
+    } else bitmap
+} else {
+    val cropY = if (statusBarHeight > 0 && statusBarHeight < height) statusBarHeight else 0
+    val cropHeight = if (statusBarHeight > 0 && statusBarHeight < height) height - statusBarHeight else height
+    Bitmap.createBitmap(bitmap, 0, cropY, width, cropHeight)
+}
+      </pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Component 2: Dart OCR Block Merging (Flutter Main Isolate)</h3>
+  <p>Before translating, we group and merge OCR blocks that represent lines of the same paragraph or words on the same line to avoid overlapping boxes and improve translation coherence.</p>
+  <div class="mockup">
+    <div class="mockup-header">Block Merging Criteria</div>
+    <div class="mockup-body">
+      <ul style="margin:0; padding-left:20px; font-size:13px; color:#cdd6f4;">
+        <li><strong>Geometrical Overlap</strong>: If two bounding boxes overlap directly (<code>rectA.overlaps(rectB)</code>), they are merged.</li>
+        <li><strong>Vertical Stacking (Paragraphs)</strong>: If blocks are aligned horizontally (horizontal overlap is > 30% of the smaller block's width) and the vertical gap between them is small (< 1.5x the smaller block's height), they are merged.</li>
+        <li><strong>Horizontal Alignment (Words)</strong>: If blocks are on the same line (vertical overlap is > 50% of the smaller block's height) and the horizontal gap is small (< 2.0x the smaller block's height), they are merged.</li>
+        <li><strong>Text Concatenation</strong>: Merged blocks are concatenated with spaces (e.g. <code>"${b1.text} ${b2.text}"</code>) and bounded by a single combined rectangle (<code>b1.boundingBox.expandToInclude(b2.boundingBox)</code>).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Component 3: FAB Visibility and Isolate Coordination</h3>
+  <p>Coordinate the overlay resize state and the capture triggers in <code>lib/main.dart</code>.</p>
+  <div class="mockup">
+    <div class="mockup-header">State Transitions Flow</div>
+    <div class="mockup-body">
+      <ol style="margin:0; padding-left:20px; font-size:13px; color:#cdd6f4;">
+        <li><strong>Trigger</strong>: User taps the FAB in <code>OverlayWindowScreen</code>.</li>
+        <li><strong>Hide FAB</strong>: Resize overlay window to <code>1x1</code> pixels via <code>FlutterOverlayWindow.resizeOverlay(1, 1, false)</code> and delay 100ms.</li>
+        <li><strong>Capture</strong>: Send <code>"capture"</code> request to the main isolate via the custom bridge.</li>
+        <li><strong>Restore / Render</strong>:
+          <ul>
+            <li>On <code>success</code>: Resize overlay to full screen (<code>imageWidth / devicePixelRatio</code> by <code>imageHeight / devicePixelRatio</code>) and paint translations.</li>
+            <li>On <code>error</code> or <code>no_text</code>: Resize overlay back to <code>140x140</code> trigger window and show error feedback if applicable.</li>
+          </ul>
+        </li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve_design" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>Approve Design</h3>
+      <p>Click here to approve the design and proceed to writing the design document.</p>
+    </div>
+  </div>
+</div>

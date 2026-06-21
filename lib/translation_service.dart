@@ -40,11 +40,20 @@ class TranslationService {
     // so 332 chars of formatted prompt ≈ 300-400 tokens which overflows a
     // 512-slot KV-cache causing DYNAMIC_UPDATE_SLICE to fail at prepare.
     // 256 gives us ~144 input tokens + headroom for output tokens.
-    debugPrint('[TranslationService] Step 3: getActiveModel(maxTokens=256, preferredBackend: cpu)...');
-    _model = await FlutterGemma.getActiveModel(
-      maxTokens: 256,
-      preferredBackend: PreferredBackend.cpu,
-    );
+    debugPrint('[TranslationService] Step 3: getActiveModel(maxTokens=256)...');
+    try {
+      _model = await FlutterGemma.getActiveModel(
+        maxTokens: 256,
+        preferredBackend: PreferredBackend.gpu,
+      );
+      debugPrint('[TranslationService] GPU model initialized successfully.');
+    } catch (e) {
+      debugPrint('[TranslationService] GPU initialization failed: $e. Falling back to CPU.');
+      _model = await FlutterGemma.getActiveModel(
+        maxTokens: 256,
+        preferredBackend: PreferredBackend.cpu,
+      );
+    }
     debugPrint('[TranslationService] Step 3: done. model=$_model');
 
     _isInitialized = true;
@@ -126,8 +135,7 @@ class TranslationService {
     final session = await _model!.createSession();
     try {
       final prompt =
-          'Translate this Japanese text into natural, fluent English. '
-          'Output only the English translation, no explanations.\n'
+          'Translate Japanese text to English. Output only English translation, no notes.\n'
           'Japanese: $chunk\nEnglish:';
       await session.addQueryChunk(Message(text: prompt, isUser: true));
       final response = await session.getResponse();
@@ -159,8 +167,12 @@ class TranslationService {
   }
 
 
-  Future<List<String>> translateBatch(List<({String text, int x, int y})> blocks) async {
+  Future<List<String>> translateBatch(
+    List<({String text, int x, int y})> blocks, {
+    bool Function()? isCancelled,
+  }) async {
     if (blocks.isEmpty) return [];
+    if (isCancelled != null && isCancelled()) return [];
     if (!_isInitialized || _model == null) {
       throw StateError("TranslationService is not initialized. Call init() first.");
     }
@@ -173,9 +185,12 @@ class TranslationService {
     // Batch translation: single inference with structured XML prompt containing layout coordinates
     final session = await _model!.createSession();
     try {
+      if (isCancelled != null && isCancelled()) return [];
       final prompt = TranslationService.buildStructuredPrompt(blocks);
       await session.addQueryChunk(Message(text: prompt, isUser: true));
+      if (isCancelled != null && isCancelled()) return [];
       final response = await session.getResponse();
+      if (isCancelled != null && isCancelled()) return [];
       
       final parsed = TranslationService.parseStructuredResponse(response, blocks.length);
       if (parsed != null) {
@@ -184,18 +199,23 @@ class TranslationService {
       
       // Fall back to sequential if XML parsing fails
       debugPrint("Structured batch translation parsing failed. Falling back to sequential translation.");
-      return await _fallbackToSequential(blocks);
+      return await _fallbackToSequential(blocks, isCancelled: isCancelled);
     } catch (e) {
+      if (isCancelled != null && isCancelled()) return [];
       debugPrint("Structured batch translation failed: $e. Falling back to sequential.");
-      return await _fallbackToSequential(blocks);
+      return await _fallbackToSequential(blocks, isCancelled: isCancelled);
     } finally {
       await session.close();
     }
   }
 
-  Future<List<String>> _fallbackToSequential(List<({String text, int x, int y})> blocks) async {
+  Future<List<String>> _fallbackToSequential(
+    List<({String text, int x, int y})> blocks, {
+    bool Function()? isCancelled,
+  }) async {
     final List<String> results = [];
     for (final block in blocks) {
+      if (isCancelled != null && isCancelled()) break;
       try {
         results.add(await translate(block.text));
       } catch (e) {
@@ -211,10 +231,9 @@ class TranslationService {
   /// [blocks] is a list of records with text and top-left pixel coordinates.
   static String buildStructuredPrompt(List<({String text, int x, int y})> blocks) {
     final buffer = StringBuffer();
-    buffer.writeln('Translate these Japanese UI text blocks into natural, fluent English.');
-    buffer.writeln('The (x, y) coordinates show where each block appears on screen — use them for layout context.');
-    buffer.writeln('Output ONLY the translations inside matching XML tags: <t id="N">translation</t>');
-    buffer.writeln('No explanations. No notes. No extra text.');
+    buffer.writeln('Translate Japanese UI text blocks to English. Use (x,y) for layout context.');
+    buffer.writeln('Format: <t id="N">translation</t>');
+    buffer.writeln('Output only XML tags. No notes.');
     buffer.writeln('');
     buffer.writeln('Input:');
     for (int i = 0; i < blocks.length; i++) {

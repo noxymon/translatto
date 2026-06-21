@@ -256,7 +256,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
-  testWidgets('Watchdog timeout: restores to 140x140 and displays the timeout message after 45s', (WidgetTester tester) async {
+  testWidgets('Watchdog timeout: restores to 140x140 and displays the timeout message after 120s', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: OverlayWindowScreen(),
     ));
@@ -265,8 +265,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.g_translate));
     await tester.pump(const Duration(milliseconds: 100));
 
-    // Advance clock past 45 seconds watchdog limit
-    await tester.pump(const Duration(seconds: 45));
+    // Advance clock past 120 seconds watchdog limit
+    await tester.pump(const Duration(seconds: 120));
 
     // Verify watchdog restoration call
     final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();
@@ -280,5 +280,65 @@ void main() {
 
     // Clean up: let the 4-second message timer complete
     await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('Long press trigger FAB displays options menu and cancel closes it', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // 1. Long press trigger FAB
+    await tester.longPress(find.byIcon(Icons.g_translate));
+    await tester.pumpAndSettle();
+
+    // Verify option menu buttons (IconButtons) are displayed
+    expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+    expect(find.byIcon(Icons.open_in_new), findsOneWidget);
+    expect(find.byIcon(Icons.exit_to_app), findsOneWidget);
+
+    // Verify that resizeOverlay(180, 90, false) was called
+    final resizeCall = log.lastWhere((call) => call.method == 'resizeOverlay');
+    expect(resizeCall.arguments['width'], equals(180));
+    expect(resizeCall.arguments['height'], equals(90));
+    expect(resizeCall.arguments['enableDrag'], isFalse);
+
+    // 2. Press back button (cancel)
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+
+    // Verify overlay option menu is closed
+    expect(find.byIcon(Icons.arrow_back), findsNothing);
+
+    // Verify that resizeOverlay(140, 140, true) was called to restore FAB
+    final restoreCall = log.lastWhere((call) => call.method == 'resizeOverlay');
+    expect(restoreCall.arguments['width'], equals(140));
+    expect(restoreCall.arguments['height'], equals(140));
+    expect(restoreCall.arguments['enableDrag'], isTrue);
+  });
+
+  testWidgets('Tapping spinner FAB during translation cancels flow', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // Start translation flow
+    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.pump(const Duration(milliseconds: 10));
+
+    // Spinner should render instead of standard translate icon
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    // Tap spinner (cancels flow)
+    await tester.tap(find.byType(CircularProgressIndicator));
+    await tester.pumpAndSettle();
+
+    // Verify resizeOverlay(140, 140, true) was called
+    final cancelCall = log.lastWhere((call) => call.method == 'resizeOverlay');
+    expect(cancelCall.arguments['width'], equals(140));
+    expect(cancelCall.arguments['height'], equals(140));
+
+    // Verify "cancel" was sent across bridge
+    final bridgeCall = log.lastWhere((call) => call.method == 'send');
+    expect(bridgeCall.arguments, equals("cancel"));
   });
 }

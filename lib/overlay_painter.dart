@@ -50,7 +50,8 @@ class OverlayPainter extends CustomPainter {
       );
 
       final double maxAllowedWidth = (size.width - 32.0).clamp(0.0, double.infinity);
-      final double textMaxWidth = (scaledRect.width * 1.6).clamp(120.0, maxAllowedWidth);
+      final double minLimit = maxAllowedWidth < 120.0 ? maxAllowedWidth : 120.0;
+      final double textMaxWidth = (scaledRect.width * 1.6).clamp(minLimit, maxAllowedWidth);
 
       // Draw translated English text inside coordinates
       final textPainter = TextPainter(
