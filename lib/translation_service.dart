@@ -51,48 +51,68 @@ class TranslationService {
     debugPrint("[TranslationService] init() complete.");
   }
 
-  /// Max input characters before sending to model.
-  /// CJK tokenizes at ~1.5 tokens/char. Formula:
-  ///   60 chars × 1.5 = 90 input tokens
-  ///   + ~50 tokens prompt boilerplate + chat template
-  ///   = ~140 total input tokens → fits in maxTokens=256 KV-cache.
-  static const int _maxInputChars = 60;
+  /// Max characters per inference chunk.
+  /// 60 CJK chars × 1.5 tokens/char + ~50 boilerplate tokens ≈ 140 tokens,
+  /// well within the compiled model's max_seq_len of ~256.
+  static const int _maxChunkChars = 60;
 
-  /// Truncates [text] to [_maxInputChars] on a natural Japanese sentence
-  /// boundary (※ bullet or 。) when possible, to avoid mid-sentence cuts.
-  static String _truncateInput(String text) {
-    if (text.length <= _maxInputChars) return text;
-    // Try to cut at a bullet or sentence end within the allowed range.
-    final window = text.substring(0, _maxInputChars);
-    final sentenceEnd = window.lastIndexOf('。');
-    final bulletStart = window.lastIndexOf('※');
-    final cutPoint = [sentenceEnd, bulletStart]
-        .where((i) => i > 10)
-        .fold(-1, (best, i) => i > best ? i : best);
-    return cutPoint > 0 ? window.substring(0, cutPoint + 1) : window;
+  /// Splits [text] into chunks of ≤ [_maxChunkChars] characters.
+  /// Prefers cutting on 。 (sentence end) or ※ (bullet start).
+  static List<String> _chunkText(String text) {
+    if (text.length <= _maxChunkChars) return [text];
+    final chunks = <String>[];
+    int start = 0;
+    while (start < text.length) {
+      final end = (start + _maxChunkChars).clamp(0, text.length);
+      final window = text.substring(start, end);
+      // Prefer cut after 。 or before ※
+      final sentenceEnd = window.lastIndexOf('。');
+      final bulletStart = window.lastIndexOf('※');
+      final cutPoint = [sentenceEnd, bulletStart]
+          .where((i) => i > 5)
+          .fold(-1, (best, i) => i > best ? i : best);
+      final chunkEnd = (cutPoint > 0 && end < text.length)
+          ? start + cutPoint + 1
+          : end;
+      chunks.add(text.substring(start, chunkEnd).trim());
+      start = chunkEnd;
+    }
+    return chunks.where((c) => c.isNotEmpty).toList();
   }
 
-  Future<String> translate(String japaneseText) async {
-    if (!_isInitialized || _model == null) {
-      throw StateError('TranslationService is not initialized. Call init() first.');
-    }
-    // Guard: truncate oversized input to stay within context window.
-    final safeText = _truncateInput(japaneseText);
-    debugPrint('[TranslationService] translate() chars=${japaneseText.length}→${safeText.length}');
+  /// Translates a single chunk (≤ [_maxChunkChars] chars) in one inference call.
+  Future<String> _translateChunk(String chunk) async {
     final session = await _model!.createSession();
     try {
-      // Prompt tuned for natural, idiomatic English — not word-for-word.
       final prompt =
           'Translate this Japanese text into natural, fluent English. '
           'Output only the English translation, no explanations.\n'
-          'Japanese: $safeText\nEnglish:';
+          'Japanese: $chunk\nEnglish:';
       await session.addQueryChunk(Message(text: prompt, isUser: true));
       final response = await session.getResponse();
-      debugPrint('[TranslationService] response ${response.length} chars.');
       return response.trim();
     } finally {
       await session.close();
     }
+  }
+
+  /// Translates [japaneseText], automatically splitting into chunks when the
+  /// text exceeds [_maxChunkChars] to stay within the model's context window.
+  Future<String> translate(String japaneseText) async {
+    if (!_isInitialized || _model == null) {
+      throw StateError('TranslationService is not initialized. Call init() first.');
+    }
+    final chunks = _chunkText(japaneseText);
+    debugPrint('[TranslationService] translate() ${japaneseText.length} chars → ${chunks.length} chunk(s)');
+    if (chunks.length == 1) {
+      return _translateChunk(chunks.first);
+    }
+    // Translate each chunk and join with space
+    final parts = <String>[];
+    for (final chunk in chunks) {
+      parts.add(await _translateChunk(chunk));
+    }
+    return parts.join(' ');
   }
 
   Future<List<String>> translateBatch(List<({String text, int x, int y})> blocks) async {
@@ -155,8 +175,9 @@ class TranslationService {
     buffer.writeln('Input:');
     for (int i = 0; i < blocks.length; i++) {
       final block = blocks[i];
-      // Truncate each block to stay within context budget
-      final safeText = _truncateInput(block.text);
+      // Use first chunk only in batch XML; oversized blocks are handled
+      // by the sequential fallback path which uses full chunked translation.
+      final safeText = _chunkText(block.text).first;
       buffer.writeln('<t id="${i + 1}" x="${block.x}" y="${block.y}">$safeText</t>');
     }
     return buffer.toString();
