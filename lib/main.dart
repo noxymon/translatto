@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:screen_translate/ocr_service.dart';
 import 'package:screen_translate/translation_service.dart';
 import 'package:screen_translate/capture_service.dart';
@@ -51,11 +52,73 @@ class MainDashboardScreen extends StatefulWidget {
 class _MainDashboardScreenState extends State<MainDashboardScreen> {
   bool _overlayPermissionGranted = false;
   bool _isOverlayRunning = false;
+  
+  final _ocrService = OcrService();
+  final _translationService = TranslationService();
+  final _captureService = CaptureService();
 
   @override
   void initState() {
     super.initState();
     _checkPermissions();
+    _initServices();
+  }
+
+  Future<void> _initServices() async {
+    // 1. Resolve local documents directory for model path to avoid Android crash
+    final docDir = await getApplicationDocumentsDirectory();
+    final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
+    
+    // 2. Warm up translation service in main isolate
+    await _translationService.init(modelPath);
+
+    // 3. Listen to capture requests sent from the overlay window isolate
+    FlutterOverlayWindow.overlayListener.listen((data) async {
+      if (data == "capture") {
+        await _runTranslationFlowAndSendToOverlay();
+      }
+    });
+  }
+
+  Future<void> _runTranslationFlowAndSendToOverlay() async {
+    try {
+      final path = await _captureService.captureScreen();
+      if (path == null) {
+        await FlutterOverlayWindow.shareData({"status": "no_text"});
+        return;
+      }
+
+      final ocrBlocks = await _ocrService.extractText(path);
+      if (ocrBlocks.isEmpty) {
+        await FlutterOverlayWindow.shareData({"status": "no_text"});
+        return;
+      }
+
+      // Get screen physical dimensions dynamically
+      final view = WidgetsBinding.instance.platformDispatcher.views.first;
+      final physicalSize = view.physicalSize;
+
+      final List<Map<String, dynamic>> list = [];
+      for (final block in ocrBlocks) {
+        final translatedText = await _translationService.translate(block.text);
+        final rect = block.boundingBox;
+        list.add({
+          'text': translatedText,
+          'rect': [rect.left, rect.top, rect.right, rect.bottom],
+        });
+      }
+
+      await FlutterOverlayWindow.shareData({
+        "status": "success",
+        "translations": list,
+        "imageWidth": physicalSize.width,
+        "imageHeight": physicalSize.height,
+      });
+
+    } catch (e) {
+      debugPrint("Translation flow error in main isolate: $e");
+      await FlutterOverlayWindow.shareData({"status": "no_text"});
+    }
   }
 
   Future<void> _checkPermissions() async {
@@ -119,18 +182,18 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xff313244)),
               ),
-              child: Column(
+              child: const Column(
                 children: [
-                  const Icon(Icons.translate, size: 64, color: Color(0xff89b4fa)),
-                  const SizedBox(height: 16),
-                  const Text(
+                  Icon(Icons.translate, size: 64, color: Color(0xff89b4fa)),
+                  SizedBox(height: 16),
+                  Text(
                     "Japanese to English",
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     "Offline Gemma 4 LiteRT-LM translation",
-                    style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                    style: TextStyle(color: Colors.grey, fontSize: 14),
                   ),
                 ],
               ),
@@ -162,6 +225,13 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
       ),
     );
   }
+
+  @override
+  void dispose() {
+    _ocrService.dispose();
+    _translationService.dispose();
+    super.dispose();
+  }
 }
 
 class OverlayWindowScreen extends StatefulWidget {
@@ -172,10 +242,6 @@ class OverlayWindowScreen extends StatefulWidget {
 }
 
 class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
-  final _ocrService = OcrService();
-  final _translationService = TranslationService();
-  final _captureService = CaptureService();
-  
   bool _isTranslating = false;
   bool _showTranslationLayer = false;
   List<TranslatedBlock> _translations = [];
@@ -184,66 +250,53 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   @override
   void initState() {
     super.initState();
-    // Warm up the translation service
-    _translationService.init('/Users/haikalannisa/Downloads/gemma-4-E2B-it.litertlm');
+    // Listen to translation results shared by the main app isolate
+    FlutterOverlayWindow.overlayListener.listen((data) {
+      if (data is Map) {
+        if (data["status"] == "no_text") {
+          setState(() {
+            _isTranslating = false;
+            _translations = [];
+            _showTranslationLayer = false;
+          });
+        } else if (data["status"] == "success") {
+          final list = (data["translations"] as List).map((item) {
+            final rectList = item["rect"] as List;
+            return TranslatedBlock(
+              text: item["text"] as String,
+              rect: Rect.fromLTRB(
+                (rectList[0] as num).toDouble(),
+                (rectList[1] as num).toDouble(),
+                (rectList[2] as num).toDouble(),
+                (rectList[3] as num).toDouble(),
+              ),
+            );
+          }).toList();
+
+          setState(() {
+            _isTranslating = false;
+            _translations = list;
+            _imageSize = Size(
+              (data["imageWidth"] as num).toDouble(),
+              (data["imageHeight"] as num).toDouble(),
+            );
+            _showTranslationLayer = true;
+          });
+
+          // Resize overlay size to fullscreen to display translations
+          FlutterOverlayWindow.resizeOverlay(-1, -1, false);
+        }
+      }
+    });
   }
 
   Future<void> _startTranslationFlow() async {
     if (_isTranslating) return;
-    
     setState(() {
       _isTranslating = true;
     });
-
-    try {
-      // 1. Capture screen
-      final path = await _captureService.captureScreen();
-      if (path == null) throw Exception("Failed to capture screen");
-
-      // 2. Perform OCR
-      final ocrBlocks = await _ocrService.extractText(path);
-      if (ocrBlocks.isEmpty) {
-        // Show brief info overlay
-        setState(() {
-          _translations = [];
-          _showTranslationLayer = false;
-        });
-        return;
-      }
-
-      // Read image dimensions (mock scaling target)
-      // Standard mobile screens are 1080x2400 physically
-      _imageSize = const Size(1080, 2400); 
-
-      // 3. Translate blocks
-      final List<TranslatedBlock> tempTranslations = [];
-      for (final block in ocrBlocks) {
-        final translatedText = await _translationService.translate(block.text);
-        tempTranslations.add(TranslatedBlock(
-          text: translatedText,
-          rect: block.boundingBox,
-        ));
-      }
-
-      setState(() {
-        _translations = tempTranslations;
-        _showTranslationLayer = true;
-      });
-
-      // Expand overlay window size to full screen to draw boxes
-      await FlutterOverlayWindow.resizeOverlay(
-        -1, // MATCH_PARENT
-        -1, // MATCH_PARENT
-        false,
-      );
-
-    } catch (e) {
-      debugPrint("Error in translation flow: $e");
-    } finally {
-      setState(() {
-        _isTranslating = false;
-      });
-    }
+    // Request translation from the main app isolate
+    await FlutterOverlayWindow.shareData("capture");
   }
 
   Future<void> _closeTranslationLayer() async {
@@ -251,7 +304,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
       _showTranslationLayer = false;
       _translations = [];
     });
-    // Shrink window back to small FAB trigger size
+    // Restore window layout back to small FAB trigger dimensions
     await FlutterOverlayWindow.resizeOverlay(120, 120, true);
   }
 
@@ -302,12 +355,5 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _ocrService.dispose();
-    _translationService.dispose();
-    super.dispose();
   }
 }
