@@ -11,10 +11,23 @@ import 'package:screen_translate/translation_service.dart';
 import 'package:screen_translate/capture_service.dart';
 import 'package:screen_translate/overlay_painter.dart';
 import 'package:screen_translate/overlay_bridge.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   OverlayBridge.init();
+
+  final prefs = await SharedPreferences.getInstance();
+  final themeStr = prefs.getString("theme_mode") ?? "dark";
+  final themeMode = ThemeMode.values.firstWhere(
+    (e) => e.name == themeStr,
+    orElse: () => ThemeMode.dark,
+  );
+  themeNotifier.value = themeMode;
+
+  final targetLang = prefs.getString("target_language") ?? "English";
+  targetLanguageNotifier.value = targetLang;
+
   // Start listener and model init in the background; UI starts immediately.
   unawaited(_initServicesAndListenForCapture());
   runApp(const MyApp());
@@ -31,6 +44,24 @@ void overlayMain() {
 }
 
 final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.dark);
+final targetLanguageNotifier = ValueNotifier<String>("English");
+
+const List<String> supportedLanguages = [
+  "English",
+  "Indonesian",
+  "Japanese",
+  "Chinese",
+  "French",
+  "Spanish",
+  "German",
+  "Italian",
+  "Korean",
+  "Portuguese",
+  "Russian",
+  "Hindi",
+  "Arabic",
+  "Vietnamese",
+];
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -134,16 +165,11 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       return;
     }
 
-    final List<OcrBlock> blocksToTranslate = [];
-    for (final block in ocrBlocks) {
-      if (TranslationService.hasJapaneseText(block.text)) {
-        blocksToTranslate.add(block);
-      }
-    }
+    final List<OcrBlock> blocksToTranslate = ocrBlocks.where((b) => b.text.trim().isNotEmpty).toList();
 
     if (blocksToTranslate.isEmpty) {
-      debugPrint("[Main] No Japanese text blocks detected.");
-      await OverlayBridge.send({"status": "no_japanese_text"});
+      debugPrint("[Main] No text blocks detected.");
+      await OverlayBridge.send({"status": "no_text"});
       return;
     }
 
@@ -154,6 +180,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     )).toList();
     final translatedTexts = await _translationService.translateBatch(
       blockRecords,
+      targetLanguage: targetLanguageNotifier.value,
       isCancelled: () => _cancelRequested,
     );
     if (_cancelRequested) return;
@@ -216,6 +243,7 @@ Future<void> _initServicesAndListenForCapture() async {
         exit(0);
       } else if (data == "overlay_ready") {
         OverlayBridge.send({"status": "theme_changed", "theme": themeNotifier.value.name});
+        OverlayBridge.send({"status": "language_changed", "language": targetLanguageNotifier.value});
       }
     },
     onError: (e) => debugPrint("[Main] OverlayBridge error: $e"),
@@ -223,6 +251,9 @@ Future<void> _initServicesAndListenForCapture() async {
   );
   themeNotifier.addListener(() {
     OverlayBridge.send({"status": "theme_changed", "theme": themeNotifier.value.name});
+  });
+  targetLanguageNotifier.addListener(() {
+    OverlayBridge.send({"status": "language_changed", "language": targetLanguageNotifier.value});
   });
   debugPrint("[Main] OverlayBridge.messages.listen() registered.");
 
@@ -232,10 +263,10 @@ Future<void> _initServicesAndListenForCapture() async {
 
   if (modelExists) {
     try {
-      _modelStatusNotifier.value = (ready: false, message: "Loading Gemma model into memory...");
+      _modelStatusNotifier.value = (ready: false, message: "Loading local model into memory...");
       final board = await _captureService.getDeviceBoard();
       await _translationService.init(modelPath, deviceBoard: board);
-      _modelStatusNotifier.value = (ready: true, message: "Gemma model loaded and ready.");
+      _modelStatusNotifier.value = (ready: true, message: "Local model loaded and ready.");
       debugPrint("[Main] Model initialized successfully.");
     } catch (e) {
       _modelStatusNotifier.value = (ready: false, message: "Failed to load model: $e");
@@ -243,7 +274,7 @@ Future<void> _initServicesAndListenForCapture() async {
   } else {
     _modelStatusNotifier.value = (
       ready: false,
-      message: "Gemma Model Missing!\nPlace 'gemma-4-E2B-it.litertlm' (2.58 GB) in documents folder:\n$modelPath",
+      message: "Local Model Missing!\nPlace 'gemma-4-E2B-it.litertlm' (2.58 GB) in documents folder:\n$modelPath",
     );
   }
 }
@@ -396,27 +427,48 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
               ),
               const SizedBox(height: 24),
               // Translator Details Card
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Theme.of(context).dividerColor),
-                ),
-                child: Column(
-                  children: [
-                    const GemmaLogo(size: 48, color: Color(0xff89b4fa)),
-                    const SizedBox(height: 12),
-                    const Text(
-                       "Japanese to English",
-                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      "Offline Gemma 4 LiteRT-LM translation",
-                      style: TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                  ],
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      const Text(
+                        "Local Model",
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Translate to:", style: TextStyle(fontSize: 14)),
+                          ValueListenableBuilder<String>(
+                            valueListenable: targetLanguageNotifier,
+                            builder: (context, targetLang, _) {
+                              return DropdownButton<String>(
+                                value: targetLang,
+                                dropdownColor: Theme.of(context).colorScheme.surface,
+                                onChanged: (newLang) async {
+                                  if (newLang != null) {
+                                    targetLanguageNotifier.value = newLang;
+                                    final prefs = await SharedPreferences.getInstance();
+                                    await prefs.setString("target_language", newLang);
+                                  }
+                                },
+                                items: supportedLanguages.map((lang) {
+                                  return DropdownMenuItem<String>(
+                                    value: lang,
+                                    child: Text(lang),
+                                  );
+                                }).toList(),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 32),
@@ -473,6 +525,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   Timer? _errorTimer;
   Timer? _translationTimeoutTimer;
   ThemeMode _themeMode = ThemeMode.dark;
+  String _targetLanguage = "English";
 
   @override
   void initState() {
@@ -487,6 +540,15 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
               (e) => e.name == themeStr,
               orElse: () => ThemeMode.dark,
             );
+          });
+        }
+        return;
+      }
+      if (data is Map && data["status"] == "language_changed") {
+        final language = data["language"] as String?;
+        if (language != null) {
+          setState(() {
+            _targetLanguage = language;
           });
         }
         return;
@@ -638,7 +700,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
     }
 
     // Request translation from the main app isolate
-    debugPrint("[Overlay] Calling OverlayBridge.send('capture')...");
+    debugPrint("[Overlay] Calling OverlayBridge.send('capture') for target language: $_targetLanguage...");
     try {
       await OverlayBridge.send("capture");
       debugPrint("[Overlay] OverlayBridge.send('capture') completed");
@@ -889,8 +951,12 @@ class SettingsScreen extends StatelessWidget {
                         title: const Text("Dark Theme"),
                         value: ThemeMode.dark,
                         groupValue: currentMode,
-                        onChanged: (mode) {
-                          if (mode != null) themeNotifier.value = mode;
+                        onChanged: (mode) async {
+                          if (mode != null) {
+                            themeNotifier.value = mode;
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString("theme_mode", mode.name);
+                          }
                         },
                       ),
                       const Divider(height: 1),
@@ -898,8 +964,12 @@ class SettingsScreen extends StatelessWidget {
                         title: const Text("Light Theme"),
                         value: ThemeMode.light,
                         groupValue: currentMode,
-                        onChanged: (mode) {
-                          if (mode != null) themeNotifier.value = mode;
+                        onChanged: (mode) async {
+                          if (mode != null) {
+                            themeNotifier.value = mode;
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString("theme_mode", mode.name);
+                          }
                         },
                       ),
                       const Divider(height: 1),
@@ -907,8 +977,12 @@ class SettingsScreen extends StatelessWidget {
                         title: const Text("System Default"),
                         value: ThemeMode.system,
                         groupValue: currentMode,
-                        onChanged: (mode) {
-                          if (mode != null) themeNotifier.value = mode;
+                        onChanged: (mode) async {
+                          if (mode != null) {
+                            themeNotifier.value = mode;
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString("theme_mode", mode.name);
+                          }
                         },
                       ),
                     ],

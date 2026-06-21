@@ -6,6 +6,13 @@ class TranslationService {
   bool _isInitialized = false;
   InferenceModel? _model;
 
+  // Cache to store translated strings mapping Japanese input -> English output
+  static final Map<String, String> _translationCache = {};
+
+  static void clearCache() {
+    _translationCache.clear();
+  }
+
   @visibleForTesting
   set model(InferenceModel? value) {
     _model = value;
@@ -147,44 +154,73 @@ class TranslationService {
   }
 
   /// Translates a single chunk (≤ [_maxChunkChars] chars) in one inference call.
-  Future<String> _translateChunk(String chunk) async {
+  Future<String> _translateChunk(String chunk, {required String targetLanguage}) async {
+    final cached = _translationCache[chunk];
+    if (cached != null) {
+      debugPrint("[TranslationService] Chunk cache HIT: $chunk -> $cached");
+      return cached;
+    }
+
     final session = await _model!.createSession();
     try {
       final prompt =
-          'Translate Japanese text to English. Output only English translation, no notes.\n'
-          'Japanese: $chunk\nEnglish:';
+          'Translate the input text to $targetLanguage. Output only the $targetLanguage translation, no notes.\n'
+          'Input: $chunk\n$targetLanguage:';
       await session.addQueryChunk(Message(text: prompt, isUser: true));
       final response = await session.getResponse();
-      return response.trim();
+      final translated = response.trim();
+      
+      // Cache the result (bound cache size to prevent leak)
+      if (_translationCache.length >= 500) {
+        _translationCache.clear();
+      }
+      _translationCache[chunk] = translated;
+      
+      return translated;
     } finally {
       await session.close();
     }
   }
 
-  Future<String> translate(String japaneseText) async {
+  Future<String> translate(String text, {String targetLanguage = "English"}) async {
     if (!_isInitialized || _model == null) {
       throw StateError('TranslationService is not initialized. Call init() first.');
     }
-    final paragraphs = _splitIntoParagraphs(japaneseText);
-    debugPrint('[TranslationService] translate() ${japaneseText.length} chars → ${paragraphs.length} paragraph(s)');
+    
+    // Check main text cache hit
+    final cachedText = _translationCache[text];
+    if (cachedText != null) {
+      debugPrint("[TranslationService] Text cache HIT: $text -> $cachedText");
+      return cachedText;
+    }
+
+    final paragraphs = _splitIntoParagraphs(text);
+    debugPrint('[TranslationService] translate() ${text.length} chars → ${paragraphs.length} paragraph(s)');
     
     final translatedParagraphs = <String>[];
     for (final paragraph in paragraphs) {
       final chunks = _chunkText(paragraph);
       final translatedChunks = <String>[];
       for (final chunk in chunks) {
-        translatedChunks.add(await _translateChunk(chunk));
+        translatedChunks.add(await _translateChunk(chunk, targetLanguage: targetLanguage));
       }
       translatedParagraphs.add(translatedChunks.join(' '));
     }
-    final hasNewlines = japaneseText.contains('\n');
+    final hasNewlines = text.contains('\n');
     final result = translatedParagraphs.join('\n');
-    return hasNewlines ? result : result.replaceAll('\n', ' ').replaceAll('\r', ' ');
-  }
+    final finalResult = hasNewlines ? result : result.replaceAll('\n', ' ').replaceAll('\r', ' ');
+    
+    if (_translationCache.length >= 500) {
+      _translationCache.clear();
+    }
+    _translationCache[text] = finalResult;
 
+    return finalResult;
+  }
 
   Future<List<String>> translateBatch(
     List<({String text, int x, int y})> blocks, {
+    String targetLanguage = "English",
     bool Function()? isCancelled,
   }) async {
     if (blocks.isEmpty) return [];
@@ -193,8 +229,25 @@ class TranslationService {
       throw StateError("TranslationService is not initialized. Call init() first.");
     }
 
+    // Try resolving all blocks from cache first to avoid LLM session overhead
+    final List<String?> cachedResults = List.filled(blocks.length, null);
+    bool allCached = true;
+    for (int i = 0; i < blocks.length; i++) {
+      final cachedVal = _translationCache[blocks[i].text];
+      if (cachedVal != null) {
+        cachedResults[i] = cachedVal;
+      } else {
+        allCached = false;
+      }
+    }
+
+    if (allCached) {
+      debugPrint("[TranslationService] translateBatch() ALL cached. Bypassing LLM completely.");
+      return cachedResults.cast<String>();
+    }
+
     if (blocks.length == 1) {
-      final single = await translate(blocks.first.text);
+      final single = await translate(blocks.first.text, targetLanguage: targetLanguage);
       return [single];
     }
 
@@ -202,7 +255,7 @@ class TranslationService {
     final session = await _model!.createSession();
     try {
       if (isCancelled != null && isCancelled()) return [];
-      final prompt = TranslationService.buildStructuredPrompt(blocks);
+      final prompt = TranslationService.buildStructuredPrompt(blocks, targetLanguage);
       await session.addQueryChunk(Message(text: prompt, isUser: true));
       if (isCancelled != null && isCancelled()) return [];
       final response = await session.getResponse();
@@ -210,16 +263,23 @@ class TranslationService {
       
       final parsed = TranslationService.parseStructuredResponse(response, blocks.length);
       if (parsed != null) {
+        // Cache successfully parsed values
+        for (int i = 0; i < blocks.length; i++) {
+          if (_translationCache.length >= 500) {
+            _translationCache.clear();
+          }
+          _translationCache[blocks[i].text] = parsed[i];
+        }
         return parsed;
       }
       
       // Fall back to sequential if XML parsing fails
       debugPrint("Structured batch translation parsing failed. Falling back to sequential translation.");
-      return await _fallbackToSequential(blocks, isCancelled: isCancelled);
+      return await _fallbackToSequential(blocks, targetLanguage: targetLanguage, isCancelled: isCancelled);
     } catch (e) {
       if (isCancelled != null && isCancelled()) return [];
       debugPrint("Structured batch translation failed: $e. Falling back to sequential.");
-      return await _fallbackToSequential(blocks, isCancelled: isCancelled);
+      return await _fallbackToSequential(blocks, targetLanguage: targetLanguage, isCancelled: isCancelled);
     } finally {
       await session.close();
     }
@@ -227,13 +287,14 @@ class TranslationService {
 
   Future<List<String>> _fallbackToSequential(
     List<({String text, int x, int y})> blocks, {
+    required String targetLanguage,
     bool Function()? isCancelled,
   }) async {
     final List<String> results = [];
     for (final block in blocks) {
       if (isCancelled != null && isCancelled()) break;
       try {
-        results.add(await translate(block.text));
+        results.add(await translate(block.text, targetLanguage: targetLanguage));
       } catch (e) {
         debugPrint("Failed to translate block: ${block.text}, error: $e");
         results.add(block.text); // Original text as last resort
@@ -245,9 +306,9 @@ class TranslationService {
 
   /// Builds a structured XML prompt for batch translation.
   /// [blocks] is a list of records with text and top-left pixel coordinates.
-  static String buildStructuredPrompt(List<({String text, int x, int y})> blocks) {
+  static String buildStructuredPrompt(List<({String text, int x, int y})> blocks, [String targetLanguage = "English"]) {
     final buffer = StringBuffer();
-    buffer.writeln('Translate Japanese UI text blocks to English. Use (x,y) for layout context.');
+    buffer.writeln('Translate the input UI text blocks to $targetLanguage. Use (x,y) for layout context.');
     buffer.writeln('Format: <t id="N">translation</t>');
     buffer.writeln('Output only XML tags. No notes.');
     buffer.writeln('');

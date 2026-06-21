@@ -9,7 +9,7 @@ void main() {
 
     // Verify title and main widgets are rendered
     expect(find.text('Gemma Screen Translator'), findsOneWidget);
-    expect(find.text('Japanese to English'), findsOneWidget);
+    expect(find.text('Local Model'), findsOneWidget);
     expect(find.text('Grant Overlay Permission'), findsOneWidget);
     expect(find.text('Start Screen Overlay'), findsOneWidget);
     expect(find.byIcon(Icons.settings), findsOneWidget);

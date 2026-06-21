@@ -46,6 +46,7 @@ void main() {
     final mockModel = MockInferenceModel(mockSession);
     
     final service = TranslationService();
+    TranslationService.clearCache();
     service.model = mockModel;
     
     final result = await service.translate('こんにちは');
@@ -63,6 +64,7 @@ void main() {
     final mockModel = MockInferenceModel(mockSession);
     
     final service = TranslationService();
+    TranslationService.clearCache();
     service.model = mockModel;
     
     final result = await service.translateBatch([(text: 'こんにちは', x: 10, y: 20)]);
@@ -78,6 +80,7 @@ void main() {
     final mockModel = MockInferenceModel(mockSession);
     
     final service = TranslationService();
+    TranslationService.clearCache();
     service.model = mockModel;
     
     final result = await service.translateBatch([

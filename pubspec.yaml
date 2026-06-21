@@ -40,6 +40,7 @@ dependencies:
   flutter_overlay_window: ^0.4.0
   path_provider: ^2.1.1
   flutter_gemma_litertlm: ^1.0.2
+  shared_preferences: ^2.2.0
 
 
 dev_dependencies:
@@ -52,6 +53,14 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: false
+  image_path: "temp_icon.png"
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "temp_icon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

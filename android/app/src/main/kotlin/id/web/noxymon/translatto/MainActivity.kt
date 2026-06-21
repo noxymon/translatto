@@ -128,18 +128,35 @@ class MainActivity: FlutterActivity() {
             return
         }
 
+        val appContext = applicationContext
         Log.d("MainActivity", "[Bridge] Setting up overlay bridge on cached overlay engine")
         val overlayChannel = MethodChannel(overlayEngine.dartExecutor.binaryMessenger, BRIDGE_CHANNEL_NAME)
         overlayChannel.setMethodCallHandler { call, result ->
             if (call.method == "send") {
                 Log.d("MainActivity", "[Bridge] Received message from Overlay: " + call.arguments)
+                if (call.arguments == "open_app") {
+                    try {
+                        val intent = appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)?.apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        } ?: Intent(appContext, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        }
+                        appContext.startActivity(intent)
+                        result.success(null)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "[Bridge] Failed to launch main app: " + e.message)
+                        result.error("ERROR", "Failed to launch main app: " + e.message, null)
+                    }
+                    return@setMethodCallHandler
+                }
+
                 val mainEngine = mainFlutterEngine
                 if (mainEngine != null) {
                     val mainChannel = MethodChannel(mainEngine.dartExecutor.binaryMessenger, BRIDGE_CHANNEL_NAME)
                     mainChannel.invokeMethod("onMessage", call.arguments)
                     result.success(null)
                 } else {
-                    Log.e("MainActivity", "[Bridge] Main engine is null when Overlay sent message")
+                    Log.e("MainActivity", "[Bridge] Main engine is null when Overlay sent message: " + call.arguments)
                     result.error("NO_MAIN", "Main engine not available", null)
                 }
             } else {

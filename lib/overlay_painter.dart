@@ -30,19 +30,21 @@ class OverlayPainter extends CustomPainter {
     required this.cropY,
   });
 
+  static final Paint _backgroundPaint = Paint()
+    ..color = Colors.black.withAlpha(217)
+    ..style = PaintingStyle.fill;
+
+  static final Map<_TextLayoutKey, TextPainter> _textPainterCache = {};
+
   @override
   void paint(Canvas canvas, Size size) {
     if (imageSize.width == 0 || imageSize.height == 0) return;
 
-    final backgroundPaint = Paint()
-      ..color = Colors.black.withAlpha(217)
-      ..style = PaintingStyle.fill;
-
     final double scaleX = size.width / imageSize.width;
     final double scaleY = size.height / (imageSize.height + cropY);
 
-    final List<_PlacedBlock> placedBlocks = [];
-
+    // First, compute original scaled bounds and limits for each block
+    final List<_TempBlock> blocks = [];
     for (final block in translations) {
       final scaledRect = Rect.fromLTRB(
         block.rect.left * scaleX,
@@ -50,76 +52,99 @@ class OverlayPainter extends CustomPainter {
         block.rect.right * scaleX,
         (block.rect.bottom + cropY) * scaleY,
       );
-
-      final double maxAllowedWidth = (size.width - 32.0).clamp(0.0, double.infinity);
-      final double minLimit = maxAllowedWidth < 120.0 ? maxAllowedWidth : 120.0;
-      final double textMaxWidth = (scaledRect.width * 1.6).clamp(minLimit, maxAllowedWidth);
-
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: block.text,
-          style: const TextStyle(color: Colors.white, fontSize: 12),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      textPainter.layout(maxWidth: textMaxWidth);
-
-      final double actualTextWidth = textPainter.width;
-      final double backgroundWidth = actualTextWidth + 4;
-      
       final double centerX = scaledRect.left + scaledRect.width / 2;
-      double boxLeft = centerX - backgroundWidth / 2;
       
-      if (boxLeft < 8) {
-        boxLeft = 8;
-      }
-      if (boxLeft + backgroundWidth > size.width - 8) {
-        boxLeft = size.width - 8 - backgroundWidth;
-        if (boxLeft < 8) boxLeft = 8;
-      }
-
-      final dynamicHeight = textPainter.height + 2;
-
-      placedBlocks.add(_PlacedBlock(
+      blocks.add(_TempBlock(
         block: block,
-        boxLeft: boxLeft,
-        boxWidth: backgroundWidth,
-        textPainter: textPainter,
-        dynamicHeight: dynamicHeight,
-        top: scaledRect.top,
+        scaledRect: scaledRect,
+        centerX: centerX,
+        leftBound: 8.0,
+        rightBound: size.width - 8.0,
       ));
     }
 
-    // Sort by boxLeft ascending (leftmost first)
-    placedBlocks.sort((a, b) => a.boxLeft.compareTo(b.boxLeft));
+    // Adjust boundaries to resolve overlaps between any two blocks that overlap vertically
+    for (int i = 0; i < blocks.length; i++) {
+      for (int j = i + 1; j < blocks.length; j++) {
+        final b1 = blocks[i];
+        final b2 = blocks[j];
 
-    // Resolve overlaps by shifting rightward blocks downwards
-    for (int i = 0; i < placedBlocks.length; i++) {
-      bool hasOverlap = true;
-      while (hasOverlap) {
-        hasOverlap = false;
-        final rectI = placedBlocks[i].rect;
-        for (int j = 0; j < i; j++) {
-          final rectJ = placedBlocks[j].rect;
-          if (rectI.left < rectJ.right && rectI.right > rectJ.left &&
-              rectI.top < rectJ.bottom && rectI.bottom > rectJ.top) {
-            placedBlocks[i].top = rectJ.bottom + 4;
-            hasOverlap = true;
-            break; // Re-check from the beginning
+        // Check if there is vertical overlap
+        final bool verticalOverlap = b1.scaledRect.top < b2.scaledRect.bottom &&
+            b1.scaledRect.bottom > b2.scaledRect.top;
+
+        if (verticalOverlap) {
+          // Find mid point horizontally between centers
+          final double mid = (b1.centerX + b2.centerX) / 2;
+          if (b1.centerX < b2.centerX) {
+            // b1 is on left, b2 on right
+            if (b1.rightBound > mid - 2.0) {
+              b1.rightBound = mid - 2.0;
+            }
+            if (b2.leftBound < mid + 2.0) {
+              b2.leftBound = mid + 2.0;
+            }
+          } else {
+            // b2 is on left, b1 on right
+            if (b2.rightBound > mid - 2.0) {
+              b2.rightBound = mid - 2.0;
+            }
+            if (b1.leftBound < mid + 2.0) {
+              b1.leftBound = mid + 2.0;
+            }
           }
         }
       }
     }
 
-    // Paint all blocks
-    for (final pb in placedBlocks) {
-      canvas.drawRect(pb.rect, backgroundPaint);
+    // Now layout text and draw each block
+    for (final b in blocks) {
+      final double availableWidth = (b.rightBound - b.leftBound).clamp(0.0, double.infinity);
+      // Tight paddings (2px horizontal inner padding on each side, so 4px total)
+      final double maxAllowedWidth = (availableWidth - 4.0).clamp(0.0, double.infinity);
+      
+      final key = _TextLayoutKey(b.block.text, maxAllowedWidth);
+      TextPainter? textPainter = _textPainterCache[key];
+      if (textPainter == null) {
+        if (_textPainterCache.length >= 100) {
+          _textPainterCache.clear();
+        }
+        textPainter = TextPainter(
+          text: TextSpan(
+            text: b.block.text,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout(maxWidth: maxAllowedWidth);
+        _textPainterCache[key] = textPainter;
+      }
 
-      pb.textPainter.paint(
+      final double actualTextWidth = textPainter.width;
+      final double backgroundWidth = actualTextWidth + 4;
+
+      // Position box centered around centerX if possible, but constrained to [leftBound, rightBound]
+      double boxLeft = b.centerX - backgroundWidth / 2;
+      if (boxLeft < b.leftBound) {
+        boxLeft = b.leftBound;
+      }
+      if (boxLeft + backgroundWidth > b.rightBound) {
+        boxLeft = b.rightBound - backgroundWidth;
+        if (boxLeft < b.leftBound) boxLeft = b.leftBound;
+      }
+
+      final double dynamicHeight = textPainter.height + 2;
+      // Position vertically centered matching original scaledRect
+      final double boxTop = b.scaledRect.top + (b.scaledRect.height - dynamicHeight) / 2;
+
+      final Rect bgRect = Rect.fromLTWH(boxLeft, boxTop, backgroundWidth, dynamicHeight);
+      canvas.drawRect(bgRect, _backgroundPaint);
+
+      textPainter.paint(
         canvas,
         Offset(
-          pb.boxLeft + 2,
-          pb.top + (pb.dynamicHeight - pb.textPainter.height) / 2,
+          boxLeft + 2,
+          boxTop + 1,
         ),
       );
     }
@@ -133,22 +158,37 @@ class OverlayPainter extends CustomPainter {
   }
 }
 
-class _PlacedBlock {
-  final TranslatedBlock block;
-  final double boxLeft;
-  final double boxWidth;
-  final TextPainter textPainter;
-  final double dynamicHeight;
-  double top;
+class _TextLayoutKey {
+  final String text;
+  final double maxWidth;
 
-  _PlacedBlock({
-    required this.block,
-    required this.boxLeft,
-    required this.boxWidth,
-    required this.textPainter,
-    required this.dynamicHeight,
-    required this.top,
-  });
+  _TextLayoutKey(this.text, this.maxWidth);
 
-  Rect get rect => Rect.fromLTWH(boxLeft, top, boxWidth, dynamicHeight);
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is _TextLayoutKey &&
+        other.text == text &&
+        (other.maxWidth - maxWidth).abs() < 0.01;
+  }
+
+  @override
+  int get hashCode => text.hashCode ^ (maxWidth * 100).round().hashCode;
 }
+
+class _TempBlock {
+  final TranslatedBlock block;
+  final Rect scaledRect;
+  final double centerX;
+  double leftBound;
+  double rightBound;
+
+  _TempBlock({
+    required this.block,
+    required this.scaledRect,
+    required this.centerX,
+    required this.leftBound,
+    required this.rightBound,
+  });
+}
+
