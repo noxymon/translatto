@@ -214,11 +214,16 @@ Future<void> _initServicesAndListenForCapture() async {
         await FlutterOverlayWindow.closeOverlay();
         await _captureService.stopCaptureSession();
         exit(0);
+      } else if (data == "overlay_ready") {
+        OverlayBridge.send({"status": "theme_changed", "theme": themeNotifier.value.name});
       }
     },
     onError: (e) => debugPrint("[Main] OverlayBridge error: $e"),
     onDone: () => debugPrint("[Main] OverlayBridge stream closed!"),
   );
+  themeNotifier.addListener(() {
+    OverlayBridge.send({"status": "theme_changed", "theme": themeNotifier.value.name});
+  });
   debugPrint("[Main] OverlayBridge.messages.listen() registered.");
 
   final docDir = await getApplicationDocumentsDirectory();
@@ -467,12 +472,25 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   String? _errorMessage;
   Timer? _errorTimer;
   Timer? _translationTimeoutTimer;
+  ThemeMode _themeMode = ThemeMode.dark;
 
   @override
   void initState() {
     super.initState();
     // Listen to translation results shared by the main app isolate via custom bridge
     _overlaySubscription = OverlayBridge.messages.listen((data) {
+      if (data is Map && data["status"] == "theme_changed") {
+        final themeStr = data["theme"] as String?;
+        if (themeStr != null) {
+          setState(() {
+            _themeMode = ThemeMode.values.firstWhere(
+              (e) => e.name == themeStr,
+              orElse: () => ThemeMode.dark,
+            );
+          });
+        }
+        return;
+      }
       if (data is Map && data["status"] == "capturing_done") {
         // Do not cancel timeout timer yet; only capture is done, translation is starting.
       } else {
@@ -562,6 +580,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
         }
       }
     });
+    OverlayBridge.send("overlay_ready");
   }
 
   @override
@@ -658,6 +677,19 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark;
+    if (_themeMode == ThemeMode.system) {
+      isDark = MediaQuery.of(context).platformBrightness == Brightness.dark;
+    } else {
+      isDark = _themeMode == ThemeMode.dark;
+    }
+
+    final Color bgColor = isDark ? const Color(0xff1e1e2e) : const Color(0xffffffff);
+    final Color accentColor = isDark ? const Color(0xff89b4fa) : const Color(0xff1e90ff);
+    final Color errorColor = isDark ? const Color(0xfff38ba8) : const Color(0xffd20f39);
+    final Color errorIconColor = isDark ? const Color(0xff11111b) : Colors.white;
+    final Color backIconColor = isDark ? Colors.grey : Colors.grey[700]!;
+
     if (_showMenu) {
       return Material(
         color: Colors.transparent,
@@ -667,9 +699,9 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
             height: 70,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
-              color: const Color(0xff1e1e2e).withAlpha(240),
+              color: bgColor.withAlpha(240),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xff89b4fa), width: 2),
+              border: Border.all(color: accentColor, width: 2),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withAlpha(128),
@@ -682,7 +714,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.grey, size: 24),
+                  icon: Icon(Icons.arrow_back, color: backIconColor, size: 24),
                   onPressed: () {
                     setState(() {
                       _showMenu = false;
@@ -692,7 +724,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                   tooltip: 'Back',
                 ),
                 IconButton(
-                  icon: const Icon(Icons.open_in_new, color: Color(0xff89b4fa), size: 24),
+                  icon: Icon(Icons.open_in_new, color: accentColor, size: 24),
                   onPressed: () {
                     OverlayBridge.send("open_app");
                     setState(() {
@@ -703,7 +735,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                   tooltip: 'Go to Main App',
                 ),
                 IconButton(
-                  icon: const Icon(Icons.exit_to_app, color: Color(0xfff38ba8), size: 24),
+                  icon: Icon(Icons.exit_to_app, color: errorColor, size: 24),
                   onPressed: () {
                     OverlayBridge.send("stop_and_exit");
                   },
@@ -743,8 +775,8 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                 right: 24,
                 child: FloatingActionButton(
                   mini: true,
-                  backgroundColor: const Color(0xfff38ba8),
-                  foregroundColor: const Color(0xff11111b),
+                  backgroundColor: errorColor,
+                  foregroundColor: errorIconColor,
                   onPressed: _closeTranslationLayer,
                   child: const Icon(Icons.close),
                 ),
@@ -772,9 +804,9 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  color: const Color(0xff1e1e2e).withAlpha(230),
+                  color: bgColor.withAlpha(230),
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xff89b4fa), width: 3),
+                  border: Border.all(color: accentColor, width: 3),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withAlpha(128),
@@ -785,15 +817,15 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                 ),
                 child: Center(
                   child: _isTranslating
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 28,
                           height: 28,
                           child: CircularProgressIndicator(
-                            color: Color(0xff89b4fa),
+                            color: accentColor,
                             strokeWidth: 3,
                           ),
                         )
-                      : const Icon(Icons.g_translate, color: Color(0xff89b4fa), size: 36),
+                      : Icon(Icons.g_translate, color: accentColor, size: 36),
                 ),
               ),
             ),
@@ -806,7 +838,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xfff38ba8).withAlpha(230),
+                  color: errorColor.withAlpha(230),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
