@@ -136,6 +136,46 @@ class MainActivity: FlutterActivity() {
         Log.i("MainActivity", "[Bridge] Overlay bridge setup complete")
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE) {
+            val pending = pendingResult
+            if (resultCode == Activity.RESULT_OK && data != null && pending != null) {
+                try {
+                    val serviceIntent = Intent(this, MediaProjectionService::class.java).apply {
+                        putExtra("resultCode", resultCode)
+                        putExtra("data", data)
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(serviceIntent)
+                    } else {
+                        startService(serviceIntent)
+                    }
+                } catch (e: Exception) {
+                    pending.error("ERROR", "Failed to start MediaProjectionService: ${e.message}", null)
+                    pendingResult = null
+                }
+            } else {
+                pending?.error("CANCELLED", "Screen capture permission denied", null)
+                pendingResult = null
+            }
+        }
+    }
+
+    fun onSessionStarted(success: Boolean, errorMsg: String? = null) {
+        runOnUiThread {
+            val pending = pendingResult
+            if (pending != null) {
+                if (success) {
+                    pending.success(true)
+                } else {
+                    pending.error("ERROR", errorMsg ?: "Failed to start capture session", null)
+                }
+                pendingResult = null
+            }
+        }
+    }
+
     private fun stopCaptureSessionService() {
         try {
             val serviceIntent = Intent(this, MediaProjectionService::class.java)
