@@ -133,13 +133,19 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
 }
 
 Future<void> _initServicesAndListenForCapture() async {
+  debugPrint("[Main] _initServicesAndListenForCapture() called — setting up overlayListener now.");
   // Set listener FIRST — before any await — so it's active as early as possible.
-  FlutterOverlayWindow.overlayListener.listen((data) async {
-    debugPrint("[Main] overlayListener received: $data");
-    if (data == "capture") {
-      await _runTranslationFlowAndSendToOverlay();
-    }
-  });
+  FlutterOverlayWindow.overlayListener.listen(
+    (data) async {
+      debugPrint("[Main] overlayListener received: $data (type: ${data.runtimeType})");
+      if (data == "capture") {
+        await _runTranslationFlowAndSendToOverlay();
+      }
+    },
+    onError: (e) => debugPrint("[Main] overlayListener error: $e"),
+    onDone: () => debugPrint("[Main] overlayListener stream closed!"),
+  );
+  debugPrint("[Main] overlayListener.listen() registered.");
 
   final docDir = await getApplicationDocumentsDirectory();
   final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
@@ -439,6 +445,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   }
 
   Future<void> _startTranslationFlow() async {
+    debugPrint("[Overlay] _startTranslationFlow() called. _isTranslating=$_isTranslating");
     if (_isTranslating) return;
     setState(() {
       _isTranslating = true;
@@ -465,7 +472,13 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
     });
 
     // Request translation from the main app isolate
-    await FlutterOverlayWindow.shareData("capture");
+    debugPrint("[Overlay] Calling shareData('capture')...");
+    try {
+      final result = await FlutterOverlayWindow.shareData("capture");
+      debugPrint("[Overlay] shareData('capture') returned: $result");
+    } catch (e) {
+      debugPrint("[Overlay] shareData ERROR: $e");
+    }
   }
 
   Future<void> _closeTranslationLayer() async {

@@ -7,39 +7,56 @@ class TranslationService {
   InferenceModel? _model;
 
   Future<void> init(String modelPath) async {
-    if (_isInitialized) return;
+    if (_isInitialized) {
+      debugPrint("[TranslationService] init() called but already initialized — skipping.");
+      return;
+    }
+    debugPrint("[TranslationService] init() start — modelPath: $modelPath");
     
     // 1. Initialize SDK with LiteRT-LM engine
+    debugPrint("[TranslationService] Step 1: FlutterGemma.initialize()...");
     await FlutterGemma.initialize(
       inferenceEngines: [const LiteRtLmEngine()],
     );
+    debugPrint("[TranslationService] Step 1: done.");
 
     // 2. Set the local model file as the active model
+    debugPrint("[TranslationService] Step 2: installModel().fromFile().install()...");
     await FlutterGemma.installModel(
       modelType: ModelType.gemmaIt,
       fileType: ModelFileType.litertlm,
     ).fromFile(modelPath).install();
+    debugPrint("[TranslationService] Step 2: done.");
 
     // 3. Load active model
+    debugPrint("[TranslationService] Step 3: getActiveModel(maxTokens=1024)...");
     _model = await FlutterGemma.getActiveModel(maxTokens: 1024);
+    debugPrint("[TranslationService] Step 3: done. model=$_model");
 
     _isInitialized = true;
+    debugPrint("[TranslationService] init() complete.");
   }
 
   Future<String> translate(String japaneseText) async {
     if (!_isInitialized || _model == null) {
       throw StateError("TranslationService is not initialized. Call init() first.");
     }
-    
+    debugPrint("[TranslationService] translate() start. text=${japaneseText.length > 40 ? japaneseText.substring(0, 40) : japaneseText}");
     // Create a fresh session for this block to avoid chat history bloat and memory leaks
+    debugPrint("[TranslationService] Creating session...");
     final session = await _model!.createSession();
+    debugPrint("[TranslationService] Session created.");
     try {
       final prompt = "Translate the following Japanese text to English. Return only the English translation. Text: $japaneseText";
+      debugPrint("[TranslationService] addQueryChunk...");
       await session.addQueryChunk(Message(text: prompt, isUser: true));
+      debugPrint("[TranslationService] getResponse()...");
       final response = await session.getResponse();
+      debugPrint("[TranslationService] getResponse() returned ${response.length} chars.");
       return response;
     } finally {
       await session.close();
+      debugPrint("[TranslationService] Session closed.");
     }
   }
 
