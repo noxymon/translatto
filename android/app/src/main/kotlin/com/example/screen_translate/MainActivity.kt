@@ -56,6 +56,11 @@ class MainActivity: FlutterActivity() {
             if (resultCode == Activity.RESULT_OK && data != null && result != null) {
                 try {
                     mediaProjection = mediaProjectionManager?.getMediaProjection(resultCode, data)
+                    if (mediaProjection == null) {
+                        result.error("ERROR", "MediaProjection is null", null)
+                        pendingResult = null
+                        return
+                    }
                     captureScreenFrame(result)
                 } catch (e: Exception) {
                     result.error("ERROR", "Failed to init MediaProjection: ${e.message}", null)
@@ -66,6 +71,16 @@ class MainActivity: FlutterActivity() {
                 pendingResult = null
             }
         }
+    }
+
+    private fun cleanupResources() {
+        imageReader?.setOnImageAvailableListener(null, null)
+        imageReader?.close()
+        imageReader = null
+        virtualDisplay?.release()
+        virtualDisplay = null
+        mediaProjection?.stop()
+        mediaProjection = null
     }
 
     private fun captureScreenFrame(result: MethodChannel.Result) {
@@ -118,23 +133,18 @@ class MainActivity: FlutterActivity() {
                                 cleanBitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
                                 out.flush()
                                 out.close()
-                                cleanBitmap.recycle()
-
+                                
                                 runOnUiThread {
-                                    imageReader?.close()
-                                    imageReader = null
-                                    virtualDisplay?.release()
-                                    virtualDisplay = null
-                                    mediaProjection?.stop()
-                                    mediaProjection = null
-
+                                    cleanupResources()
                                     result.success(file.absolutePath)
                                 }
                             } catch (e: Exception) {
                                 runOnUiThread {
+                                    cleanupResources()
                                     result.error("ERROR", "Failed to save frame: ${e.message}", null)
                                 }
                             } finally {
+                                cleanBitmap.recycle()
                                 runOnUiThread {
                                     pendingResult = null
                                 }
@@ -142,25 +152,15 @@ class MainActivity: FlutterActivity() {
                         }.start()
                     }
                 } catch (e: Exception) {
-                    imageReader?.close()
-                    imageReader = null
-                    virtualDisplay?.release()
-                    virtualDisplay = null
-                    mediaProjection?.stop()
-                    mediaProjection = null
-
-                    result.error("ERROR", "Failed to capture frame: ${e.message}", null)
-                    pendingResult = null
+                    runOnUiThread {
+                        cleanupResources()
+                        result.error("ERROR", "Failed to capture frame: ${e.message}", null)
+                        pendingResult = null
+                    }
                 }
             }, null)
         } catch (e: Exception) {
-            imageReader?.close()
-            imageReader = null
-            virtualDisplay?.release()
-            virtualDisplay = null
-            mediaProjection?.stop()
-            mediaProjection = null
-
+            cleanupResources()
             result.error("ERROR", "Failed to initialize capture: ${e.message}", null)
             pendingResult = null
         }

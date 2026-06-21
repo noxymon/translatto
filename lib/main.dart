@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:path_provider/path_provider.dart';
@@ -69,8 +71,12 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
     final docDir = await getApplicationDocumentsDirectory();
     final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
     
-    // 2. Warm up translation service in main isolate
-    await _translationService.init(modelPath);
+    // 2. Warm up translation service in main isolate if model is present
+    if (await File(modelPath).exists()) {
+      await _translationService.init(modelPath);
+    } else {
+      debugPrint("Model file missing at $modelPath. Pre-download required.");
+    }
 
     // 3. Listen to capture requests sent from the overlay window isolate
     FlutterOverlayWindow.overlayListener.listen((data) async {
@@ -98,15 +104,15 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
       final view = WidgetsBinding.instance.platformDispatcher.views.first;
       final physicalSize = view.physicalSize;
 
-      final List<Map<String, dynamic>> list = [];
-      for (final block in ocrBlocks) {
+      final translationFutures = ocrBlocks.map((block) async {
         final translatedText = await _translationService.translate(block.text);
         final rect = block.boundingBox;
-        list.add({
+        return {
           'text': translatedText,
           'rect': [rect.left, rect.top, rect.right, rect.bottom],
-        });
-      }
+        };
+      });
+      final list = await Future.wait(translationFutures);
 
       await FlutterOverlayWindow.shareData({
         "status": "success",
@@ -246,12 +252,13 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   bool _showTranslationLayer = false;
   List<TranslatedBlock> _translations = [];
   Size _imageSize = Size.zero;
+  StreamSubscription? _overlaySubscription;
 
   @override
   void initState() {
     super.initState();
     // Listen to translation results shared by the main app isolate
-    FlutterOverlayWindow.overlayListener.listen((data) {
+    _overlaySubscription = FlutterOverlayWindow.overlayListener.listen((data) {
       if (data is Map) {
         if (data["status"] == "no_text") {
           setState(() {
@@ -288,6 +295,12 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
         }
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _overlaySubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _startTranslationFlow() async {
