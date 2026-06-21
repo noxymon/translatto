@@ -502,15 +502,37 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   Widget build(BuildContext context) {
     if (_showTranslationLayer) {
       return GestureDetector(
-        onTap: _closeTranslationLayer,
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragEnd: (details) {
+          if (details.primaryVelocity != null && details.primaryVelocity! < -300) {
+            _closeTranslationLayer();
+          }
+        },
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          body: CustomPaint(
-            size: Size.infinite,
-            painter: OverlayPainter(
-              translations: _translations,
-              imageSize: _imageSize,
-            ),
+          body: Stack(
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  size: Size.infinite,
+                  painter: OverlayPainter(
+                    translations: _translations,
+                    imageSize: _imageSize,
+                  ),
+                ),
+              ),
+              Positioned(
+                bottom: 24,
+                right: 24,
+                child: FloatingActionButton(
+                  mini: true,
+                  backgroundColor: const Color(0xfff38ba8),
+                  foregroundColor: const Color(0xff11111b),
+                  onPressed: _closeTranslationLayer,
+                  child: const Icon(Icons.close),
+                ),
+              ),
+            ],
           ),
         ),
       );
