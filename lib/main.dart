@@ -403,16 +403,16 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Theme.of(context).dividerColor),
                 ),
-                child: const Column(
+                child: Column(
                   children: [
-                    Icon(Icons.translate, size: 48, color: Color(0xff89b4fa)),
-                    SizedBox(height: 12),
-                    Text(
+                    const GemmaLogo(size: 48, color: Color(0xff89b4fa)),
+                    const SizedBox(height: 12),
+                    const Text(
                        "Japanese to English",
                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
-                    SizedBox(height: 6),
-                    Text(
+                    const SizedBox(height: 6),
+                    const Text(
                       "Offline Gemma 4 LiteRT-LM translation",
                       style: TextStyle(color: Colors.grey, fontSize: 13),
                     ),
@@ -825,7 +825,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                             strokeWidth: 3,
                           ),
                         )
-                      : Icon(Icons.g_translate, color: accentColor, size: 36),
+                      : GemmaLogo(size: 36, color: accentColor),
                 ),
               ),
             ),
@@ -922,4 +922,124 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 }
+
+class GemmaLogo extends StatelessWidget {
+  final double size;
+  final Color? color;
+  final bool showBackground;
+
+  const GemmaLogo({
+    super.key,
+    required this.size,
+    this.color,
+    this.showBackground = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _GemmaLogoPainter(
+          color: color ?? Theme.of(context).colorScheme.primary,
+          showBackground: showBackground,
+        ),
+      ),
+    );
+  }
+}
+
+class _GemmaLogoPainter extends CustomPainter {
+  final Color color;
+  final bool showBackground;
+
+  _GemmaLogoPainter({
+    required this.color,
+    required this.showBackground,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 100.0;
+    
+    if (showBackground) {
+      final bgPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(10 * scale, 10 * scale, 80 * scale, 80 * scale),
+          Radius.circular(20 * scale),
+        ),
+        bgPaint,
+      );
+    }
+
+    final strokePaint = Paint()
+      ..color = color
+      ..strokeWidth = 7 * 0.75 * scale
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    // Kanji "本" strokes (scaled relative to 100x100)
+    // 1. Vertical stroke M0 -30 V35 -> translate (50, 50) and scale 0.75
+    canvas.drawLine(
+      Offset(50 * scale, (50 - 30 * 0.75) * scale),
+      Offset(50 * scale, (50 + 35 * 0.75) * scale),
+      strokePaint,
+    );
+
+    // 2. Main Horizontal stroke M-35 -5 H35
+    canvas.drawLine(
+      Offset((50 - 35 * 0.75) * scale, (50 - 5 * 0.75) * scale),
+      Offset((50 + 35 * 0.75) * scale, (50 - 5 * 0.75) * scale),
+      strokePaint,
+    );
+
+    // 3. Left Diagonal M0 -5 L-30 30
+    canvas.drawLine(
+      Offset(50 * scale, (50 - 5 * 0.75) * scale),
+      Offset((50 - 30 * 0.75) * scale, (50 + 30 * 0.75) * scale),
+      strokePaint,
+    );
+
+    // 4. Right Diagonal M0 -5 L30 30
+    canvas.drawLine(
+      Offset(50 * scale, (50 - 5 * 0.75) * scale),
+      Offset((50 + 30 * 0.75) * scale, (50 + 30 * 0.75) * scale),
+      strokePaint,
+    );
+
+    // 5. Lower Horizontal M-15 20 H15
+    canvas.drawLine(
+      Offset((50 - 15 * 0.75) * scale, (50 + 20 * 0.75) * scale),
+      Offset((50 + 15 * 0.75) * scale, (50 + 20 * 0.75) * scale),
+      strokePaint,
+    );
+
+    // High-tech accent dot
+    final dotPaint = Paint()
+      ..color = color.withOpacity(0.3)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(28 * scale, 28 * scale), 1.5 * scale, dotPaint);
+
+    // High-tech corner stroke M72 72 L76 76
+    final accentLinePaint = Paint()
+      ..color = color
+      ..strokeWidth = 2.5 * scale
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(72 * scale, 72 * scale),
+      Offset(76 * scale, 76 * scale),
+      accentLinePaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _GemmaLogoPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.showBackground != showBackground;
+  }
+}
+
 

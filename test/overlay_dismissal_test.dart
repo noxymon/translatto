@@ -59,7 +59,7 @@ void main() {
 
     // 1. Initially, it shows the FAB trigger (not the translation layer)
     expect(find.byType(FloatingActionButton), findsNothing);
-    expect(find.byIcon(Icons.g_translate), findsOneWidget);
+    expect(find.byType(GemmaLogo), findsOneWidget);
 
     // 2. Simulate success message from bridge
     await OverlayBridge.send({
@@ -157,7 +157,7 @@ void main() {
     ));
 
     // Tap trigger FAB
-    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.tap(find.byType(GemmaLogo));
     await tester.pump(); // Start execution
 
     // Check that we immediately called resizeOverlay(1, 1, false)
@@ -178,7 +178,7 @@ void main() {
     ));
 
     // Tap trigger FAB and wait 100ms
-    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.tap(find.byType(GemmaLogo));
     await tester.pump(const Duration(milliseconds: 100));
 
     // Send success
@@ -211,7 +211,7 @@ void main() {
     ));
 
     // Tap trigger FAB and wait 100ms
-    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.tap(find.byType(GemmaLogo));
     await tester.pump(const Duration(milliseconds: 100));
 
     // Simulate "no_text"
@@ -232,7 +232,7 @@ void main() {
     ));
 
     // Tap trigger FAB and wait 100ms
-    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.tap(find.byType(GemmaLogo));
     await tester.pump(const Duration(milliseconds: 100));
 
     // Simulate "error"
@@ -262,7 +262,7 @@ void main() {
     ));
 
     // Tap trigger FAB and wait 100ms
-    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.tap(find.byType(GemmaLogo));
     await tester.pump(const Duration(milliseconds: 100));
 
     // Advance clock past 120 seconds watchdog limit
@@ -288,7 +288,7 @@ void main() {
     ));
 
     // 1. Long press trigger FAB
-    await tester.longPress(find.byIcon(Icons.g_translate));
+    await tester.longPress(find.byType(GemmaLogo));
     await tester.pumpAndSettle();
 
     // Verify option menu buttons (IconButtons) are displayed
@@ -322,7 +322,7 @@ void main() {
     ));
 
     // Start translation flow
-    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.tap(find.byType(GemmaLogo));
     await tester.pump(const Duration(milliseconds: 10));
 
     // Spinner should render instead of standard translate icon
@@ -348,7 +348,7 @@ void main() {
     ));
 
     // Tap trigger FAB and wait 100ms
-    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.tap(find.byType(GemmaLogo));
     await tester.pump(const Duration(milliseconds: 100));
 
     // Simulate "no_japanese_text"
