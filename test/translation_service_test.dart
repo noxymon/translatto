@@ -153,5 +153,19 @@ void main() {
     expect(resultId, equals('Halo')); // Should NOT hit cache for English
     expect(mockSessionId.queries.first.text, contains('to Indonesian'));
   });
+
+  test('TranslationService sentence-boundary chunking groups short sentences', () {
+    // English/Indonesian non-CJK text should support up to 400 chars, grouping multiple sentences
+    final input = "First sentence. Second sentence. Third sentence. " * 3;
+    final chunks = TranslationService.chunkTextForTesting(input);
+    expect(chunks.length, equals(1)); // All should group in 1 chunk (< 400 chars)
+    expect(chunks.first, contains("Third sentence."));
+  });
+
+  test('TranslationService sentence-boundary chunking splits oversized text adaptively', () {
+    final input = "This is a very long sentence that will exceed the maximum character limit of four hundred characters for non CJK languages. " * 4;
+    final chunks = TranslationService.chunkTextForTesting(input);
+    expect(chunks.length, greaterThan(1));
+  });
 }
 

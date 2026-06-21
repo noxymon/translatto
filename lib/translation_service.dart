@@ -83,10 +83,6 @@ class TranslationService {
     return false;
   }
 
-  /// Max characters per inference chunk.
-  /// 60 CJK chars × 1.5 tokens/char + ~50 boilerplate tokens ≈ 140 tokens,
-  /// well within the compiled model's max_seq_len of ~256.
-  static const int _maxChunkChars = 60;
 
   static bool _isCjkCodePoint(int codePoint) {
     return (codePoint >= 0x4E00 && codePoint <= 0x9FFF) ||
@@ -129,27 +125,60 @@ class TranslationService {
     return paragraphs;
   }
 
-  /// Splits [text] into chunks of ≤ [_maxChunkChars] characters.
-  /// Prefers cutting on 。 (sentence end) or ※ (bullet start).
+  @visibleForTesting
+  static List<String> chunkTextForTesting(String text) => _chunkText(text);
+
+  /// Splits [text] into chunks dynamically grouped by sentence boundaries
+  /// keeping complete sentences intact and using script-adaptive character limits.
   static List<String> _chunkText(String text) {
-    if (text.length <= _maxChunkChars) return [text];
+    if (text.isEmpty) return [];
+
+    // Adaptive limits based on script type
+    final isCjk = hasJapaneseText(text);
+    final maxChars = isCjk ? 100 : 400;
+
+    if (text.length <= maxChars) return [text];
+
+    // Regex to split on sentence endings (. ! ? 。 ！ ？) followed by whitespace, keeping delimiters
+    final sentenceRegex = RegExp(r'[^.!?。！？]+[.!?。！？]?\s*');
+    final matches = sentenceRegex.allMatches(text).map((m) => m.group(0)!).toList();
+
+    // If split yields nothing, return text as fallback
+    if (matches.isEmpty) return [text];
+
     final chunks = <String>[];
-    int start = 0;
-    while (start < text.length) {
-      final end = (start + _maxChunkChars).clamp(0, text.length);
-      final window = text.substring(start, end);
-      // Prefer cut after 。 or before ※
-      final sentenceEnd = window.lastIndexOf('。');
-      final bulletStart = window.lastIndexOf('※');
-      final cutPoint = [sentenceEnd, bulletStart]
-          .where((i) => i > 5)
-          .fold(-1, (best, i) => i > best ? i : best);
-      final chunkEnd = (cutPoint > 0 && end < text.length)
-          ? start + cutPoint + 1
-          : end;
-      chunks.add(text.substring(start, chunkEnd).trim());
-      start = chunkEnd;
+    var currentChunk = StringBuffer();
+
+    for (final sentence in matches) {
+      final currentLen = currentChunk.length;
+      final sentenceLen = sentence.length;
+
+      if (currentLen == 0) {
+        currentChunk.write(sentence);
+      } else if (currentLen + sentenceLen <= maxChars) {
+        currentChunk.write(sentence);
+      } else {
+        chunks.add(currentChunk.toString().trim());
+        currentChunk = StringBuffer()..write(sentence);
+      }
+
+      // If a single sentence exceeds maxChars, split it by characters/sub-clauses
+      if (currentChunk.length > maxChars) {
+        final longSentence = currentChunk.toString();
+        int start = 0;
+        while (start < longSentence.length) {
+          final end = (start + maxChars).clamp(0, longSentence.length);
+          chunks.add(longSentence.substring(start, end).trim());
+          start = end;
+        }
+        currentChunk = StringBuffer();
+      }
     }
+
+    if (currentChunk.isNotEmpty) {
+      chunks.add(currentChunk.toString().trim());
+    }
+
     return chunks.where((c) => c.isNotEmpty).toList();
   }
 
