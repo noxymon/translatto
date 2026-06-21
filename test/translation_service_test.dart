@@ -91,4 +91,26 @@ void main() {
     expect(mockSession.queries.first.text, contains('<t id="2" x="10" y="80">世界</t>'));
     expect(mockSession.isClosed, isTrue);
   });
+
+  test('TranslationService splits into paragraphs and preserves newlines/list markers', () async {
+    final mockSession = MockInferenceModelSession('Translated line');
+    final mockModel = MockInferenceModel(mockSession);
+    
+    final service = TranslationService();
+    service.model = mockModel;
+    
+    // Split test: 3 distinct paragraphs/bullets should translate sequentially and join with \n
+    final input = '※ 期間が7日と14日の通常定期預金は最低預入単位\nが10万円以上、1円単位になります。\n※ 金利は税引前の年利です。';
+    final result = await service.translate(input);
+    
+    // We expect 2 translated paragraphs joined by \n (since line 2 is merged into paragraph 1)
+    expect(result, equals('Translated line\nTranslated line'));
+    expect(mockSession.queries, hasLength(2));
+    
+    // Verify first query was the merged paragraph 1
+    expect(mockSession.queries[0].text, contains('※ 期間が7日と14日の通常定期預金は最低預入単位が10万円以上、1円単位になります。'));
+    // Verify second query was paragraph 2
+    expect(mockSession.queries[1].text, contains('※ 金利は税引前の年利です。'));
+  });
 }
+

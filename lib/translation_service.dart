@@ -56,6 +56,47 @@ class TranslationService {
   /// well within the compiled model's max_seq_len of ~256.
   static const int _maxChunkChars = 60;
 
+  static bool _isCjkCodePoint(int codePoint) {
+    return (codePoint >= 0x4E00 && codePoint <= 0x9FFF) ||
+           (codePoint >= 0x3040 && codePoint <= 0x309F) ||
+           (codePoint >= 0x30A0 && codePoint <= 0x30FF) ||
+           (codePoint >= 0x3000 && codePoint <= 0x303F) ||
+           (codePoint >= 0xFF00 && codePoint <= 0xFFEF);
+  }
+
+  static List<String> _splitIntoParagraphs(String text) {
+    final lines = text.split('\n');
+    final paragraphs = <String>[];
+    
+    final listMarkerRegex = RegExp(r'^([※•・●■▲\-*\s\d①-⑨\(\[\]])');
+    final sentenceEndRegex = RegExp(r'[。\.!\?？]$');
+
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      if (paragraphs.isEmpty) {
+        paragraphs.add(trimmed);
+        continue;
+      }
+
+      final last = paragraphs.last;
+      if (listMarkerRegex.hasMatch(trimmed) || sentenceEndRegex.hasMatch(last)) {
+        paragraphs.add(trimmed);
+      } else {
+        final lastChar = last.isNotEmpty ? last.codeUnitAt(last.length - 1) : 0;
+        final firstChar = trimmed.codeUnitAt(0);
+        final isLastCjk = _isCjkCodePoint(lastChar);
+        final isFirstCjk = _isCjkCodePoint(firstChar);
+        if (isLastCjk || isFirstCjk) {
+          paragraphs[paragraphs.length - 1] = last + trimmed;
+        } else {
+          paragraphs[paragraphs.length - 1] = '$last $trimmed';
+        }
+      }
+    }
+    return paragraphs;
+  }
+
   /// Splits [text] into chunks of ≤ [_maxChunkChars] characters.
   /// Prefers cutting on 。 (sentence end) or ※ (bullet start).
   static List<String> _chunkText(String text) {
@@ -102,18 +143,21 @@ class TranslationService {
     if (!_isInitialized || _model == null) {
       throw StateError('TranslationService is not initialized. Call init() first.');
     }
-    final chunks = _chunkText(japaneseText);
-    debugPrint('[TranslationService] translate() ${japaneseText.length} chars → ${chunks.length} chunk(s)');
-    if (chunks.length == 1) {
-      return _translateChunk(chunks.first);
+    final paragraphs = _splitIntoParagraphs(japaneseText);
+    debugPrint('[TranslationService] translate() ${japaneseText.length} chars → ${paragraphs.length} paragraph(s)');
+    
+    final translatedParagraphs = <String>[];
+    for (final paragraph in paragraphs) {
+      final chunks = _chunkText(paragraph);
+      final translatedChunks = <String>[];
+      for (final chunk in chunks) {
+        translatedChunks.add(await _translateChunk(chunk));
+      }
+      translatedParagraphs.add(translatedChunks.join(' '));
     }
-    // Translate each chunk and join with space
-    final parts = <String>[];
-    for (final chunk in chunks) {
-      parts.add(await _translateChunk(chunk));
-    }
-    return parts.join(' ');
+    return translatedParagraphs.join('\n');
   }
+
 
   Future<List<String>> translateBatch(List<({String text, int x, int y})> blocks) async {
     if (blocks.isEmpty) return [];
@@ -177,7 +221,7 @@ class TranslationService {
       final block = blocks[i];
       // Use first chunk only in batch XML; oversized blocks are handled
       // by the sequential fallback path which uses full chunked translation.
-      final safeText = _chunkText(block.text).first;
+      final safeText = _chunkText(block.text.replaceAll('\n', ' ')).first;
       buffer.writeln('<t id="${i + 1}" x="${block.x}" y="${block.y}">$safeText</t>');
     }
     return buffer.toString();
