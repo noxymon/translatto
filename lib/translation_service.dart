@@ -42,96 +42,53 @@ class TranslationService {
     }
   }
 
-  Future<List<String>> translateBatch(List<String> texts) async {
-    if (texts.isEmpty) return [];
+  Future<List<String>> translateBatch(List<({String text, int x, int y})> blocks) async {
+    if (blocks.isEmpty) return [];
     if (!_isInitialized || _model == null) {
       throw StateError("TranslationService is not initialized. Call init() first.");
     }
 
-    if (texts.length == 1) {
-      final single = await translate(texts.first);
+    if (blocks.length == 1) {
+      final single = await translate(blocks.first.text);
       return [single];
     }
 
-    // Try batch translation to reduce context and token generation overhead (N runs -> 1 run)
+    // Batch translation: single inference with structured XML prompt containing layout coordinates
     final session = await _model!.createSession();
     try {
-      final buffer = StringBuffer();
-      buffer.writeln("Translate these Japanese text blocks to English. Return them as a numbered list with the same indices. Format each item as: '<index>. <translation>'. Return ONLY the translated list. Do not write any other explanations.");
-      for (int i = 0; i < texts.length; i++) {
-        buffer.writeln("${i + 1}. ${texts[i]}");
-      }
-
-      await session.addQueryChunk(Message(text: buffer.toString(), isUser: true));
+      final prompt = TranslationService.buildStructuredPrompt(blocks);
+      await session.addQueryChunk(Message(text: prompt, isUser: true));
       final response = await session.getResponse();
       
-      final parsed = _parseBatchResponse(response, texts.length);
+      final parsed = TranslationService.parseStructuredResponse(response, blocks.length);
       if (parsed != null) {
         return parsed;
       }
       
-      // If parsing fails, fall back to sequential translation (safe double-barrier strategy)
-      debugPrint("Batch translation parsing failed. Falling back to sequential translation.");
-      final List<String> results = [];
-      for (final text in texts) {
-        try {
-          results.add(await translate(text));
-        } catch (e) {
-          debugPrint("Failed to translate block: $text, error: $e");
-          results.add(text);
-        }
-      }
-      return results;
+      // Fall back to sequential if XML parsing fails
+      debugPrint("Structured batch translation parsing failed. Falling back to sequential translation.");
+      return await _fallbackToSequential(blocks);
     } catch (e) {
-      debugPrint("Batch translation failed: $e. Falling back to sequential.");
-      final List<String> results = [];
-      for (final text in texts) {
-        try {
-          results.add(await translate(text));
-        } catch (e) {
-          debugPrint("Failed to translate block: $text, error: $e");
-          results.add(text);
-        }
-      }
-      return results;
+      debugPrint("Structured batch translation failed: $e. Falling back to sequential.");
+      return await _fallbackToSequential(blocks);
     } finally {
       await session.close();
     }
   }
 
-  List<String>? _parseBatchResponse(String response, int expectedCount) {
-    final lines = response.split('\n');
-    final List<String> results = List.filled(expectedCount, "");
-    int foundCount = 0;
-    
-    final pattern = RegExp(r'^(\d+)\.\s*(.*)$');
-    for (final line in lines) {
-      final trimmed = line.trim();
-      if (trimmed.isEmpty) continue;
-      
-      final match = pattern.firstMatch(trimmed);
-      if (match != null) {
-        final index = int.tryParse(match.group(1)!) ?? 0;
-        final translation = match.group(2)!.trim();
-        
-        if (index >= 1 && index <= expectedCount) {
-          String clean = translation;
-          if (clean.startsWith('"') && clean.endsWith('"') && clean.length > 1) {
-            clean = clean.substring(1, clean.length - 1);
-          } else if (clean.startsWith("'") && clean.endsWith("'") && clean.length > 1) {
-            clean = clean.substring(1, clean.length - 1);
-          }
-          results[index - 1] = clean;
-          foundCount++;
-        }
+  Future<List<String>> _fallbackToSequential(List<({String text, int x, int y})> blocks) async {
+    final List<String> results = [];
+    for (final block in blocks) {
+      try {
+        results.add(await translate(block.text));
+      } catch (e) {
+        debugPrint("Failed to translate block: ${block.text}, error: $e");
+        results.add(block.text); // Original text as last resort
       }
     }
-    
-    if (foundCount == expectedCount && results.every((r) => r.isNotEmpty)) {
-      return results;
-    }
-    return null;
+    return results;
   }
+
 
   /// Builds a structured XML prompt for batch translation.
   /// [blocks] is a list of records with text and top-left pixel coordinates.

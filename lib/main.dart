@@ -147,9 +147,13 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
         return;
       }
 
-      // Extract text blocks for batched translation
-      final rawTexts = ocrBlocks.map((b) => b.text).toList();
-      final translatedTexts = await _translationService.translateBatch(rawTexts);
+      // Translate blocks in bulk using structured XML with layout coordinates
+      final blockRecords = ocrBlocks.map((b) => (
+        text: b.text,
+        x: b.boundingBox.left.toInt(),
+        y: b.boundingBox.top.toInt(),
+      )).toList();
+      final translatedTexts = await _translationService.translateBatch(blockRecords);
 
       final List<Map<String, dynamic>> list = [];
       for (int i = 0; i < ocrBlocks.length; i++) {
