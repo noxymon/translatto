@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class TranslatedBlock {
@@ -9,18 +10,31 @@ class TranslatedBlock {
 
 class OverlayPainter extends CustomPainter {
   final List<TranslatedBlock> translations;
+  final Size imageSize;
 
-  OverlayPainter({required this.translations});
+  OverlayPainter({required this.translations, required this.imageSize});
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (imageSize.width == 0 || imageSize.height == 0) return;
+
     final backgroundPaint = Paint()
       ..color = Colors.black.withAlpha(217)
       ..style = PaintingStyle.fill;
 
+    final double scaleX = size.width / imageSize.width;
+    final double scaleY = size.height / imageSize.height;
+
     for (final block in translations) {
+      final scaledRect = Rect.fromLTRB(
+        block.rect.left * scaleX,
+        block.rect.top * scaleY,
+        block.rect.right * scaleX,
+        block.rect.bottom * scaleY,
+      );
+
       // Paint solid background over original Japanese text bounds
-      canvas.drawRect(block.rect, backgroundPaint);
+      canvas.drawRect(scaledRect, backgroundPaint);
 
       // Draw translated English text inside coordinates
       final textPainter = TextPainter(
@@ -30,16 +44,19 @@ class OverlayPainter extends CustomPainter {
         ),
         textDirection: TextDirection.ltr,
       );
-      textPainter.layout(maxWidth: block.rect.width);
+      textPainter.layout(maxWidth: scaledRect.width);
       textPainter.paint(
         canvas,
-        Offset(block.rect.left + 4, block.rect.top + (block.rect.height - textPainter.height) / 2),
+        Offset(
+          scaledRect.left + 4,
+          scaledRect.top + (scaledRect.height - textPainter.height) / 2,
+        ),
       );
     }
   }
 
   @override
   bool shouldRepaint(covariant OverlayPainter oldDelegate) {
-    return oldDelegate.translations != translations;
+    return !listEquals(oldDelegate.translations, translations) || oldDelegate.imageSize != imageSize;
   }
 }
