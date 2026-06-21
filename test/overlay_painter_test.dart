@@ -11,6 +11,7 @@ void main() {
             TranslatedBlock(text: 'Hello', rect: const Rect.fromLTWH(0, 0, 100, 50)),
           ],
           imageSize: const Size(1080, 1920),
+          cropY: 20.0,
         ),
       ),
     );

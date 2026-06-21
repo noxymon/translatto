@@ -375,6 +375,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   bool _showTranslationLayer = false;
   List<TranslatedBlock> _translations = [];
   Size _imageSize = Size.zero;
+  double _cropY = 0.0;
   StreamSubscription? _overlaySubscription;
   String? _errorMessage;
   Timer? _errorTimer;
@@ -427,11 +428,13 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
 
           final double imageWidth = (data["imageWidth"] as num).toDouble();
           final double imageHeight = (data["imageHeight"] as num).toDouble();
+          final double cropY = (data["cropY"] as num?)?.toDouble() ?? 0.0;
 
           setState(() {
             _isTranslating = false;
             _translations = list;
             _imageSize = Size(imageWidth, imageHeight);
+            _cropY = cropY;
             _showTranslationLayer = true;
             _errorMessage = null;
           });
@@ -441,8 +444,9 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
           if (!mounted) return;
           final double devicePixelRatio = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
           final int widthDp = (imageWidth / devicePixelRatio).round();
-          final int heightDp = (imageHeight / devicePixelRatio).round();
+          final int heightDp = ((imageHeight + cropY) / devicePixelRatio).round();
           FlutterOverlayWindow.resizeOverlay(widthDp, heightDp, false);
+          FlutterOverlayWindow.moveOverlay(const OverlayPosition(0, 0));
         }
       }
     });
@@ -508,6 +512,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
     setState(() {
       _showTranslationLayer = false;
       _translations = [];
+      _cropY = 0.0;
     });
     // Restore window layout back to small FAB trigger dimensions
     await FlutterOverlayWindow.resizeOverlay(140, 140, true);
@@ -533,6 +538,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                   painter: OverlayPainter(
                     translations: _translations,
                     imageSize: _imageSize,
+                    cropY: _cropY,
                   ),
                 ),
               ),

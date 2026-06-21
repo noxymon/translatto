@@ -22,10 +22,12 @@ class TranslatedBlock {
 class OverlayPainter extends CustomPainter {
   final List<TranslatedBlock> translations;
   final Size imageSize;
+  final double cropY;
 
   OverlayPainter({
     required this.translations,
     required this.imageSize,
+    required this.cropY,
   });
 
   @override
@@ -37,16 +39,14 @@ class OverlayPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     final double scaleX = size.width / imageSize.width;
-    final double scaleY = size.height / imageSize.height;
-    // No Y-offset needed: both the cropped screenshot and the overlay window
-    // use y=0 = below the status bar as their coordinate origin.
+    final double scaleY = size.height / (imageSize.height + cropY);
 
     for (final block in translations) {
       final scaledRect = Rect.fromLTRB(
         block.rect.left * scaleX,
-        block.rect.top * scaleY,
+        (block.rect.top + cropY) * scaleY,
         block.rect.right * scaleX,
-        block.rect.bottom * scaleY,
+        (block.rect.bottom + cropY) * scaleY,
       );
 
       // Draw translated English text inside coordinates
@@ -88,6 +88,7 @@ class OverlayPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant OverlayPainter oldDelegate) {
     return !listEquals(oldDelegate.translations, translations) ||
-        oldDelegate.imageSize != imageSize;
+        oldDelegate.imageSize != imageSize ||
+        oldDelegate.cropY != cropY;
   }
 }
