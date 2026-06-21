@@ -74,14 +74,24 @@ class TranslationService {
       debugPrint("Batch translation parsing failed. Falling back to sequential translation.");
       final List<String> results = [];
       for (final text in texts) {
-        results.add(await translate(text));
+        try {
+          results.add(await translate(text));
+        } catch (e) {
+          debugPrint("Failed to translate block: $text, error: $e");
+          results.add(text);
+        }
       }
       return results;
     } catch (e) {
       debugPrint("Batch translation failed: $e. Falling back to sequential.");
       final List<String> results = [];
       for (final text in texts) {
-        results.add(await translate(text));
+        try {
+          results.add(await translate(text));
+        } catch (e) {
+          debugPrint("Failed to translate block: $text, error: $e");
+          results.add(text);
+        }
       }
       return results;
     } finally {

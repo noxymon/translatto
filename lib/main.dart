@@ -45,6 +45,10 @@ class MyApp extends StatelessWidget {
   }
 }
 
+final _ocrService = OcrService();
+final _translationService = TranslationService();
+final _captureService = CaptureService();
+
 class MainDashboardScreen extends StatefulWidget {
   const MainDashboardScreen({super.key});
 
@@ -59,9 +63,6 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
   String _modelStatusMessage = "Checking Gemma model...";
   bool _isTranslationInProgress = false;
   
-  final _ocrService = OcrService();
-  final _translationService = TranslationService();
-  final _captureService = CaptureService();
   StreamSubscription? _mainListenerSubscription;
 
   @override
@@ -339,9 +340,6 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
   @override
   void dispose() {
     _mainListenerSubscription?.cancel();
-    _ocrService.dispose();
-    _translationService.dispose();
-    _captureService.stopCaptureSession();
     super.dispose();
   }
 }

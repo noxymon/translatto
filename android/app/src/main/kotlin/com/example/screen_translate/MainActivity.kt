@@ -116,8 +116,9 @@ class MainActivity: FlutterActivity() {
     }
 
     override fun onDestroy() {
-        stopCaptureSessionService()
-        activeActivity = null
+        if (activeActivity == this) {
+            activeActivity = null
+        }
         super.onDestroy()
     }
 }

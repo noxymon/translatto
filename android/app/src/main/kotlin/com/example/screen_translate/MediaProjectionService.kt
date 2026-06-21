@@ -158,12 +158,16 @@ class MediaProjectionService : Service() {
             } else {
                 reader.setOnImageAvailableListener({ r ->
                     try {
-                        val img = r.acquireLatestImage()
-                        if (img != null) {
-                            r.setOnImageAvailableListener(null, null)
-                            handler.removeCallbacks(timeoutRunnable)
-                            processImageAndReply(img, result)
+                        val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                        
+                        if (!isCapturing) {
+                            img.close()
+                            return@setOnImageAvailableListener
                         }
+                        
+                        r.setOnImageAvailableListener(null, null)
+                        handler.removeCallbacks(timeoutRunnable)
+                        processImageAndReply(img, result)
                     } catch (e: Throwable) {
                         r.setOnImageAvailableListener(null, null)
                         handler.removeCallbacks(timeoutRunnable)
@@ -198,8 +202,13 @@ class MediaProjectionService : Service() {
             )
             bitmap.copyPixelsFromBuffer(buffer)
 
-            val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-            bitmap.recycle()
+            val cleanBitmap = if (rowPadding == 0) {
+                bitmap
+            } else {
+                val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                bitmap.recycle()
+                cropped
+            }
 
             Thread {
                 try {

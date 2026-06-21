@@ -44,9 +44,6 @@ class OverlayPainter extends CustomPainter {
         block.rect.bottom * scaleY,
       );
 
-      // Paint solid background over original Japanese text bounds
-      canvas.drawRect(scaledRect, backgroundPaint);
-
       // Draw translated English text inside coordinates
       final textPainter = TextPainter(
         text: TextSpan(
@@ -56,11 +53,27 @@ class OverlayPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       textPainter.layout(maxWidth: scaledRect.width);
+
+      // Adjust the background rectangle's height dynamically based on the larger of scaledRect.height or textPainter.height (with padding)
+      final dynamicHeight = textPainter.height > scaledRect.height 
+          ? textPainter.height + 8 
+          : scaledRect.height;
+
+      final backgroundRect = Rect.fromLTRB(
+        scaledRect.left,
+        scaledRect.top,
+        scaledRect.right,
+        scaledRect.top + dynamicHeight,
+      );
+
+      // Paint solid background over original Japanese text bounds
+      canvas.drawRect(backgroundRect, backgroundPaint);
+
       textPainter.paint(
         canvas,
         Offset(
           scaledRect.left + 4,
-          scaledRect.top + (scaledRect.height - textPainter.height) / 2,
+          scaledRect.top + (dynamicHeight - textPainter.height) / 2,
         ),
       );
     }
