@@ -80,6 +80,9 @@ class MainActivity: FlutterActivity() {
                         result.error("ERROR", "Failed to launch main app: ${e.message}", null)
                     }
                 }
+                "getDeviceBoard" -> {
+                    result.success(android.os.Build.BOARD)
+                }
                 else -> {
                     result.notImplemented()
                 }

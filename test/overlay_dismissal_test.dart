@@ -341,4 +341,31 @@ void main() {
     final bridgeCall = log.lastWhere((call) => call.method == 'send');
     expect(bridgeCall.arguments, equals("cancel"));
   });
+
+  testWidgets('Failed loop: no japanese text found restores to 140x140 and displays the warning message', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // Tap trigger FAB and wait 100ms
+    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Simulate "no_japanese_text"
+    await OverlayBridge.send({"status": "no_japanese_text"});
+    await tester.pump(); // Render state with warning message
+
+    // Verify restoration call
+    final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();
+    expect(resizeCalls.length, equals(2));
+    expect(resizeCalls[1].arguments['width'], equals(140));
+    expect(resizeCalls[1].arguments['height'], equals(140));
+    expect(resizeCalls[1].arguments['enableDrag'], isTrue);
+
+    // Verify error text is displayed
+    expect(find.text("No Japanese text detected."), findsOneWidget);
+
+    // Clean up: let the 4-second message timer complete
+    await tester.pump(const Duration(seconds: 4));
+  });
 }

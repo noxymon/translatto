@@ -34,4 +34,13 @@ class CaptureService {
       debugPrint("Failed to stop capture session: ${e.message}");
     }
   }
+
+  Future<String?> getDeviceBoard() async {
+    try {
+      return await _channel.invokeMethod<String>('getDeviceBoard');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to get device board: ${e.message}");
+      return null;
+    }
+  }
 }

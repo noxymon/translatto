@@ -123,5 +123,13 @@ void main() {
     final result = await service.translate('改行なし原文');
     expect(result, equals('Line 1 Line 2')); // \n replaced with space
   });
+
+  test('TranslationService.hasJapaneseText detects Hiragana, Katakana, and Kanji', () {
+    expect(TranslationService.hasJapaneseText('こんにちは'), isTrue); // Hiragana
+    expect(TranslationService.hasJapaneseText('テスト'), isTrue); // Katakana
+    expect(TranslationService.hasJapaneseText('日本語'), isTrue); // Kanji
+    expect(TranslationService.hasJapaneseText('Hello World'), isFalse); // English only
+    expect(TranslationService.hasJapaneseText('12345!@#'), isFalse); // Symbols and digits
+  });
 }
 

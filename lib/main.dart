@@ -107,6 +107,20 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       return;
     }
 
+    bool hasJapanese = false;
+    for (final block in ocrBlocks) {
+      if (TranslationService.hasJapaneseText(block.text)) {
+        hasJapanese = true;
+        break;
+      }
+    }
+
+    if (!hasJapanese) {
+      debugPrint("[Main] No Japanese text detected in OCR blocks.");
+      await OverlayBridge.send({"status": "no_japanese_text"});
+      return;
+    }
+
     final blockRecords = ocrBlocks.map((b) => (
       text: b.text,
       x: b.boundingBox.left.toInt(),
@@ -188,7 +202,8 @@ Future<void> _initServicesAndListenForCapture() async {
   if (modelExists) {
     try {
       _modelStatusNotifier.value = (ready: false, message: "Loading Gemma model into memory...");
-      await _translationService.init(modelPath);
+      final board = await _captureService.getDeviceBoard();
+      await _translationService.init(modelPath, deviceBoard: board);
       _modelStatusNotifier.value = (ready: true, message: "Gemma model loaded and ready.");
       debugPrint("[Main] Model initialized successfully.");
     } catch (e) {
@@ -436,6 +451,22 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
             _translations = [];
             _showTranslationLayer = false;
             _errorMessage = null;
+          });
+          FlutterOverlayWindow.resizeOverlay(140, 140, true);
+        } else if (data["status"] == "no_japanese_text") {
+          setState(() {
+            _isTranslating = false;
+            _translations = [];
+            _showTranslationLayer = false;
+            _errorMessage = "No Japanese text detected.";
+          });
+          _errorTimer?.cancel();
+          _errorTimer = Timer(const Duration(seconds: 4), () {
+            if (mounted) {
+              setState(() {
+                _errorMessage = null;
+              });
+            }
           });
           FlutterOverlayWindow.resizeOverlay(140, 140, true);
         } else if (data["status"] == "error") {

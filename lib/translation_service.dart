@@ -12,7 +12,7 @@ class TranslationService {
     _isInitialized = value != null;
   }
 
-  Future<void> init(String modelPath) async {
+  Future<void> init(String modelPath, {String? deviceBoard}) async {
     if (_isInitialized) {
       debugPrint("[TranslationService] init() called but already initialized — skipping.");
       return;
@@ -41,14 +41,18 @@ class TranslationService {
     // 512-slot KV-cache causing DYNAMIC_UPDATE_SLICE to fail at prepare.
     // 256 gives us ~144 input tokens + headroom for output tokens.
     debugPrint('[TranslationService] Step 3: getActiveModel(maxTokens=256)...');
+    final isKona = deviceBoard?.toLowerCase() == 'kona';
     try {
+      if (isKona) {
+        throw UnsupportedError("Vulkan GPU backend disabled on Snapdragon 870 / Kona to prevent driver assertion crash.");
+      }
       _model = await FlutterGemma.getActiveModel(
         maxTokens: 256,
         preferredBackend: PreferredBackend.gpu,
       );
       debugPrint('[TranslationService] GPU model initialized successfully.');
     } catch (e) {
-      debugPrint('[TranslationService] GPU initialization failed: $e. Falling back to CPU.');
+      debugPrint('[TranslationService] GPU initialization failed or skipped: $e. Falling back to CPU.');
       _model = await FlutterGemma.getActiveModel(
         maxTokens: 256,
         preferredBackend: PreferredBackend.cpu,
@@ -58,6 +62,18 @@ class TranslationService {
 
     _isInitialized = true;
     debugPrint("[TranslationService] init() complete.");
+  }
+
+  static bool hasJapaneseText(String text) {
+    for (int i = 0; i < text.length; i++) {
+      final cp = text.codeUnitAt(i);
+      if ((cp >= 0x3040 && cp <= 0x309F) || // Hiragana
+          (cp >= 0x30A0 && cp <= 0x30FF) || // Katakana
+          (cp >= 0x4E00 && cp <= 0x9FFF)) { // CJK Kanji
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Max characters per inference chunk.
