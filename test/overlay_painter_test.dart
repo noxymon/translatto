@@ -44,4 +44,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('OverlayPainter shifts overlapping translation boxes downwards', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 500,
+            height: 500,
+            child: CustomPaint(
+              painter: OverlayPainter(
+                translations: [
+                  TranslatedBlock(text: 'Left Block', rect: const Rect.fromLTWH(10, 10, 100, 40)),
+                  TranslatedBlock(text: 'Right Block', rect: const Rect.fromLTWH(20, 12, 100, 40)),
+                ],
+                imageSize: const Size(500, 500),
+                cropY: 0.0,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 }

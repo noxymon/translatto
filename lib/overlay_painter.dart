@@ -41,6 +41,8 @@ class OverlayPainter extends CustomPainter {
     final double scaleX = size.width / imageSize.width;
     final double scaleY = size.height / (imageSize.height + cropY);
 
+    final List<_PlacedBlock> placedBlocks = [];
+
     for (final block in translations) {
       final scaledRect = Rect.fromLTRB(
         block.rect.left * scaleX,
@@ -53,7 +55,6 @@ class OverlayPainter extends CustomPainter {
       final double minLimit = maxAllowedWidth < 120.0 ? maxAllowedWidth : 120.0;
       final double textMaxWidth = (scaledRect.width * 1.6).clamp(minLimit, maxAllowedWidth);
 
-      // Draw translated English text inside coordinates
       final textPainter = TextPainter(
         text: TextSpan(
           text: block.text,
@@ -69,7 +70,6 @@ class OverlayPainter extends CustomPainter {
       final double centerX = scaledRect.left + scaledRect.width / 2;
       double boxLeft = centerX - backgroundWidth / 2;
       
-      // Keep inside screen boundaries with 8dp margin
       if (boxLeft < 8) {
         boxLeft = 8;
       }
@@ -78,26 +78,50 @@ class OverlayPainter extends CustomPainter {
         if (boxLeft < 8) boxLeft = 8;
       }
 
-      // Adjust the background rectangle's height dynamically based on the larger of scaledRect.height or textPainter.height (with padding)
       final dynamicHeight = textPainter.height > scaledRect.height 
-          ? textPainter.height + 8 
+          ? textPainter.height + 4 
           : scaledRect.height;
 
-      final backgroundRect = Rect.fromLTRB(
-        boxLeft,
-        scaledRect.top,
-        boxLeft + backgroundWidth,
-        scaledRect.top + dynamicHeight,
-      );
+      placedBlocks.add(_PlacedBlock(
+        block: block,
+        boxLeft: boxLeft,
+        boxWidth: backgroundWidth,
+        textPainter: textPainter,
+        dynamicHeight: dynamicHeight,
+        top: scaledRect.top,
+      ));
+    }
 
-      // Paint solid background over original Japanese text bounds
-      canvas.drawRect(backgroundRect, backgroundPaint);
+    // Sort by boxLeft ascending (leftmost first)
+    placedBlocks.sort((a, b) => a.boxLeft.compareTo(b.boxLeft));
 
-      textPainter.paint(
+    // Resolve overlaps by shifting rightward blocks downwards
+    for (int i = 0; i < placedBlocks.length; i++) {
+      bool hasOverlap = true;
+      while (hasOverlap) {
+        hasOverlap = false;
+        final rectI = placedBlocks[i].rect;
+        for (int j = 0; j < i; j++) {
+          final rectJ = placedBlocks[j].rect;
+          if (rectI.left < rectJ.right && rectI.right > rectJ.left &&
+              rectI.top < rectJ.bottom && rectI.bottom > rectJ.top) {
+            placedBlocks[i].top = rectJ.bottom + 4;
+            hasOverlap = true;
+            break; // Re-check from the beginning
+          }
+        }
+      }
+    }
+
+    // Paint all blocks
+    for (final pb in placedBlocks) {
+      canvas.drawRect(pb.rect, backgroundPaint);
+
+      pb.textPainter.paint(
         canvas,
         Offset(
-          boxLeft + 4,
-          scaledRect.top + (dynamicHeight - textPainter.height) / 2,
+          pb.boxLeft + 4,
+          pb.top + (pb.dynamicHeight - pb.textPainter.height) / 2,
         ),
       );
     }
@@ -109,4 +133,24 @@ class OverlayPainter extends CustomPainter {
         oldDelegate.imageSize != imageSize ||
         oldDelegate.cropY != cropY;
   }
+}
+
+class _PlacedBlock {
+  final TranslatedBlock block;
+  final double boxLeft;
+  final double boxWidth;
+  final TextPainter textPainter;
+  final double dynamicHeight;
+  double top;
+
+  _PlacedBlock({
+    required this.block,
+    required this.boxLeft,
+    required this.boxWidth,
+    required this.textPainter,
+    required this.dynamicHeight,
+    required this.top,
+  });
+
+  Rect get rect => Rect.fromLTWH(boxLeft, top, boxWidth, dynamicHeight);
 }
