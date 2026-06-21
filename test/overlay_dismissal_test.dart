@@ -256,7 +256,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
-  testWidgets('Watchdog timeout: restores to 140x140 and displays the timeout message after 15s', (WidgetTester tester) async {
+  testWidgets('Watchdog timeout: restores to 140x140 and displays the timeout message after 45s', (WidgetTester tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: OverlayWindowScreen(),
     ));
@@ -265,8 +265,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.g_translate));
     await tester.pump(const Duration(milliseconds: 100));
 
-    // Advance clock past 15 seconds watchdog limit
-    await tester.pump(const Duration(seconds: 15));
+    // Advance clock past 45 seconds watchdog limit
+    await tester.pump(const Duration(seconds: 45));
 
     // Verify watchdog restoration call
     final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();

@@ -69,6 +69,17 @@ class MainActivity: FlutterActivity() {
                     stopCaptureSessionService()
                     result.success(true)
                 }
+                "openApp" -> {
+                    try {
+                        val intent = Intent(this, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("ERROR", "Failed to launch main app: ${e.message}", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }

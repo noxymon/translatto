@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_translate/ocr_service.dart';
@@ -79,6 +80,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
 
   try {
     final captureData = await _captureService.captureScreen();
+    await OverlayBridge.send({"status": "capturing_done"});
     if (captureData == null) {
       debugPrint("[Main] captureScreen() returned null.");
       await OverlayBridge.send({"status": "no_text"});
@@ -145,6 +147,16 @@ Future<void> _initServicesAndListenForCapture() async {
       debugPrint("[Main] OverlayBridge received: $data (type: ${data.runtimeType})");
       if (data == "capture") {
         await _runTranslationFlowAndSendToOverlay();
+      } else if (data == "open_app") {
+        try {
+          await const MethodChannel('id.web.noxymon.translatto/capture').invokeMethod('openApp');
+        } catch (e) {
+          debugPrint("Failed to launch main app: $e");
+        }
+      } else if (data == "stop_and_exit") {
+        await FlutterOverlayWindow.closeOverlay();
+        await _captureService.stopCaptureSession();
+        exit(0);
       }
     },
     onError: (e) => debugPrint("[Main] OverlayBridge error: $e"),
@@ -225,6 +237,9 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
         _isOverlayRunning = false;
       });
     } else {
+      final double devicePixelRatio = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
+      final int sizePx = (140 * devicePixelRatio).round();
+
       // Start projection capture session first. Shows casting permission prompt.
       final success = await _captureService.startCaptureSession();
       if (!success) {
@@ -240,8 +255,8 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
         enableDrag: true,
         flag: OverlayFlag.defaultFlag,
         alignment: OverlayAlignment.centerRight,
-        height: 140,
-        width: 140,
+        height: sizePx,
+        width: sizePx,
       );
       setState(() {
         _isOverlayRunning = true;
@@ -376,6 +391,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   List<TranslatedBlock> _translations = [];
   Size _imageSize = Size.zero;
   double _cropY = 0.0;
+  bool _showMenu = false;
   StreamSubscription? _overlaySubscription;
   String? _errorMessage;
   Timer? _errorTimer;
@@ -386,9 +402,18 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
     super.initState();
     // Listen to translation results shared by the main app isolate via custom bridge
     _overlaySubscription = OverlayBridge.messages.listen((data) {
-      _translationTimeoutTimer?.cancel();
+      if (data is Map && data["status"] == "capturing_done") {
+        // Do not cancel timeout timer yet; only capture is done, translation is starting.
+      } else {
+        _translationTimeoutTimer?.cancel();
+      }
       if (data is Map) {
-        if (data["status"] == "no_text") {
+        if (data["status"] == "capturing_done") {
+          setState(() {
+            _isTranslating = true;
+          });
+          FlutterOverlayWindow.resizeOverlay(140, 140, false);
+        } else if (data["status"] == "no_text") {
           setState(() {
             _isTranslating = false;
             _translations = [];
@@ -468,9 +493,9 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
       _errorMessage = null;
     });
 
-    // Start a 15-second request watchdog timeout to prevent perpetual spinner if the main app is dead/killed
+    // Start a 45-second request watchdog timeout to prevent perpetual spinner if the main app is dead/killed
     _translationTimeoutTimer?.cancel();
-    _translationTimeoutTimer = Timer(const Duration(seconds: 15), () {
+    _translationTimeoutTimer = Timer(const Duration(seconds: 45), () {
       if (mounted && _isTranslating) {
         setState(() {
           _isTranslating = false;
@@ -520,6 +545,76 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_showMenu) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(
+          child: Container(
+            width: 200,
+            height: 180,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xff1e1e2e).withAlpha(240),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xff89b4fa), width: 2),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                const Text(
+                  "Overlay Options",
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      OverlayBridge.send("open_app");
+                      setState(() {
+                        _showMenu = false;
+                      });
+                      FlutterOverlayWindow.resizeOverlay(140, 140, true);
+                    },
+                    icon: const Icon(Icons.open_in_new, size: 16),
+                    label: const Text("Go to Main App"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xff89b4fa),
+                      foregroundColor: const Color(0xff11111b),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      OverlayBridge.send("stop_and_exit");
+                    },
+                    icon: const Icon(Icons.exit_to_app, size: 16),
+                    label: const Text("Stop & Exit"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xfff38ba8),
+                      foregroundColor: const Color(0xff11111b),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _showMenu = false;
+                    });
+                    FlutterOverlayWindow.resizeOverlay(140, 140, true);
+                  },
+                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     if (_showTranslationLayer) {
       return GestureDetector(
         behavior: HitTestBehavior.translucent,
@@ -566,6 +661,12 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
           Center(
             child: GestureDetector(
               onTap: _startTranslationFlow,
+              onLongPress: () async {
+                setState(() {
+                  _showMenu = true;
+                });
+                await FlutterOverlayWindow.resizeOverlay(220, 200, false);
+              },
               child: Container(
                 width: 80,
                 height: 80,

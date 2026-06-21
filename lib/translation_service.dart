@@ -137,8 +137,6 @@ class TranslationService {
     }
   }
 
-  /// Translates [japaneseText], automatically splitting into chunks when the
-  /// text exceeds [_maxChunkChars] to stay within the model's context window.
   Future<String> translate(String japaneseText) async {
     if (!_isInitialized || _model == null) {
       throw StateError('TranslationService is not initialized. Call init() first.');
@@ -155,7 +153,9 @@ class TranslationService {
       }
       translatedParagraphs.add(translatedChunks.join(' '));
     }
-    return translatedParagraphs.join('\n');
+    final hasNewlines = japaneseText.contains('\n');
+    final result = translatedParagraphs.join('\n');
+    return hasNewlines ? result : result.replaceAll('\n', ' ').replaceAll('\r', ' ');
   }
 
 

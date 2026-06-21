@@ -112,5 +112,16 @@ void main() {
     // Verify second query was paragraph 2
     expect(mockSession.queries[1].text, contains('※ 金利は税引前の年利です。'));
   });
+
+  test('TranslationService removes newlines when original Japanese had no newlines', () async {
+    final mockSession = MockInferenceModelSession('Line 1\nLine 2');
+    final mockModel = MockInferenceModel(mockSession);
+    
+    final service = TranslationService();
+    service.model = mockModel;
+    
+    final result = await service.translate('改行なし原文');
+    expect(result, equals('Line 1 Line 2')); // \n replaced with space
+  });
 }
 
