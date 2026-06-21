@@ -32,19 +32,31 @@ class MainActivity: FlutterActivity() {
         mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "captureScreen") {
-                pendingResult?.error("CANCELLED", "Overwritten by concurrent request", null)
-                pendingResult = result
-                
-                val intent = mediaProjectionManager?.createScreenCaptureIntent()
-                if (intent != null) {
-                    startActivityForResult(intent, REQUEST_CODE)
-                } else {
-                    result.error("ERROR", "MediaProjection intent null", null)
-                    pendingResult = null
+            when (call.method) {
+                "captureScreen" -> {
+                    pendingResult?.error("CANCELLED", "Overwritten by concurrent request", null)
+                    pendingResult = result
+                    
+                    if (mediaProjection != null) {
+                        // Reuse active MediaProjection to prevent repetitive consent prompts and background activity blocks
+                        captureScreenFrame(result)
+                    } else {
+                        val intent = mediaProjectionManager?.createScreenCaptureIntent()
+                        if (intent != null) {
+                            startActivityForResult(intent, REQUEST_CODE)
+                        } else {
+                            result.error("ERROR", "MediaProjection intent null", null)
+                            pendingResult = null
+                        }
+                    }
                 }
-            } else {
-                result.notImplemented()
+                "stopCaptureSession" -> {
+                    cleanupResources()
+                    result.success(null)
+                }
+                else -> {
+                    result.notImplemented()
+                }
             }
         }
     }
@@ -73,12 +85,16 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun cleanupResources() {
+    private fun cleanupFrameResources() {
         imageReader?.setOnImageAvailableListener(null, null)
         imageReader?.close()
         imageReader = null
         virtualDisplay?.release()
         virtualDisplay = null
+    }
+
+    private fun cleanupResources() {
+        cleanupFrameResources()
         mediaProjection?.stop()
         mediaProjection = null
     }
@@ -107,62 +123,71 @@ class MainActivity: FlutterActivity() {
                 try {
                     val image = reader.acquireLatestImage()
                     if (image != null) {
-                        reader.setOnImageAvailableListener(null, null)
-                        
-                        val planes = image.planes
-                        val buffer = planes[0].buffer
-                        val pixelStride = planes[0].pixelStride
-                        val rowStride = planes[0].rowStride
-                        val rowPadding = rowStride - pixelStride * width
+                        try {
+                            reader.setOnImageAvailableListener(null, null)
+                            
+                            val planes = image.planes
+                            val buffer = planes[0].buffer
+                            val pixelStride = planes[0].pixelStride
+                            val rowStride = planes[0].rowStride
+                            val rowPadding = rowStride - pixelStride * width
 
-                        val bitmap = Bitmap.createBitmap(
-                            width + rowPadding / pixelStride,
-                            height,
-                            Bitmap.Config.ARGB_8888
-                        )
-                        bitmap.copyPixelsFromBuffer(buffer)
-                        image.close()
+                            val bitmap = Bitmap.createBitmap(
+                                width + rowPadding / pixelStride,
+                                height,
+                                Bitmap.Config.ARGB_8888
+                            )
+                            bitmap.copyPixelsFromBuffer(buffer)
 
-                        val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                        bitmap.recycle()
+                            val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                            bitmap.recycle()
 
-                        Thread {
-                            try {
-                                val file = File(cacheDir, "screen_capture.png")
-                                val out = FileOutputStream(file)
-                                cleanBitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
-                                out.flush()
-                                out.close()
-                                
-                                runOnUiThread {
-                                    cleanupResources()
-                                    result.success(file.absolutePath)
+                            Thread {
+                                try {
+                                    val file = File(cacheDir, "screen_capture.png")
+                                    val out = FileOutputStream(file)
+                                    cleanBitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
+                                    out.flush()
+                                    out.close()
+                                    
+                                    runOnUiThread {
+                                        cleanupFrameResources()
+                                        result.success(file.absolutePath)
+                                    }
+                                } catch (e: Exception) {
+                                    runOnUiThread {
+                                        cleanupFrameResources()
+                                        result.error("ERROR", "Failed to save frame: ${e.message}", null)
+                                    }
+                                } finally {
+                                    cleanBitmap.recycle()
+                                    runOnUiThread {
+                                        pendingResult = null
+                                    }
                                 }
-                            } catch (e: Exception) {
-                                runOnUiThread {
-                                    cleanupResources()
-                                    result.error("ERROR", "Failed to save frame: ${e.message}", null)
-                                }
-                            } finally {
-                                cleanBitmap.recycle()
-                                runOnUiThread {
-                                    pendingResult = null
-                                }
-                            }
-                        }.start()
+                            }.start()
+                        } finally {
+                            // Guarantee native graphics Image buffer is closed to prevent leaks and hangs
+                            image.close()
+                        }
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
-                        cleanupResources()
+                        cleanupFrameResources()
                         result.error("ERROR", "Failed to capture frame: ${e.message}", null)
                         pendingResult = null
                     }
                 }
             }, null)
         } catch (e: Exception) {
-            cleanupResources()
+            cleanupFrameResources()
             result.error("ERROR", "Failed to initialize capture: ${e.message}", null)
             pendingResult = null
         }
+    }
+
+    override fun onDestroy() {
+        cleanupResources()
+        super.onDestroy()
     }
 }
