@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 class TranslationService {
   bool _isInitialized = false;
@@ -125,6 +126,54 @@ class TranslationService {
           foundCount++;
         }
       }
+    }
+    
+    if (foundCount == expectedCount && results.every((r) => r.isNotEmpty)) {
+      return results;
+    }
+    return null;
+  }
+
+  String buildStructuredPrompt(List<TextBlock> blocks) {
+    final buffer = StringBuffer();
+    buffer.writeln("Translate the following Japanese text blocks captured from an Android screen to English.");
+    buffer.writeln("The coordinates (x, y) represent their top-left pixel locations on the screen.");
+    buffer.writeln("Use these locations to understand the layout context (e.g., adjacent blocks, title vs. body).");
+    buffer.writeln("");
+    buffer.writeln("Output ONLY the translated blocks wrapped in matching XML tags: <t id=\"...\"><translation></t>.");
+    buffer.writeln("Do not include coordinates in the output. Do not write any other explanations.");
+    buffer.writeln("");
+    buffer.writeln("Input:");
+    for (int i = 0; i < blocks.length; i++) {
+      final block = blocks[i];
+      final x = block.boundingBox.left.toInt();
+      final y = block.boundingBox.top.toInt();
+      buffer.writeln("<t id=\"${i + 1}\" x=\"$x\" y=\"$y\">${block.text}</t>");
+    }
+    return buffer.toString();
+  }
+
+  List<String>? parseStructuredResponse(String response, int expectedCount) {
+    final List<String> results = List.filled(expectedCount, "");
+    final pattern = RegExp(r'<t id="(\d+)">\s*([\s\S]*?)\s*<\/t>');
+    final matches = pattern.allMatches(response);
+    
+    int foundCount = 0;
+    final Set<int> seenIndices = {};
+    
+    for (final match in matches) {
+      final idStr = match.group(1);
+      final text = match.group(2);
+      if (idStr == null || text == null) continue;
+      
+      final id = int.tryParse(idStr);
+      if (id == null || id < 1 || id > expectedCount) continue;
+      
+      if (seenIndices.contains(id)) continue;
+      seenIndices.add(id);
+      
+      results[id - 1] = text.trim();
+      foundCount++;
     }
     
     if (foundCount == expectedCount && results.every((r) => r.isNotEmpty)) {
