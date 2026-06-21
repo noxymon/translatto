@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -28,25 +30,50 @@ void overlayMain() {
   ));
 }
 
+final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.dark);
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Screen Translator',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: const Color(0xff89b4fa),
-        scaffoldBackgroundColor: const Color(0xff181825),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xff89b4fa),
-          secondary: Color(0xffcba6f7),
-          surface: Color(0xff1e1e2e),
-        ),
-      ),
-      home: const MainDashboardScreen(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (context, themeMode, _) {
+        return MaterialApp(
+          title: 'Screen Translator',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            brightness: Brightness.light,
+            primaryColor: const Color(0xff1e90ff),
+            scaffoldBackgroundColor: const Color(0xfff5f5f5),
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Color(0xff1e90ff),
+              foregroundColor: Colors.white,
+            ),
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xff1e90ff),
+              secondary: Color(0xff00bfff),
+              surface: Colors.white,
+            ),
+          ),
+          darkTheme: ThemeData(
+            brightness: Brightness.dark,
+            primaryColor: const Color(0xff89b4fa),
+            scaffoldBackgroundColor: const Color(0xff181825),
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Color(0xff1e1e2e),
+            ),
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xff89b4fa),
+              secondary: Color(0xffcba6f7),
+              surface: Color(0xff1e1e2e),
+            ),
+          ),
+          themeMode: themeMode,
+          home: const MainDashboardScreen(),
+        );
+      },
     );
   }
 }
@@ -107,21 +134,20 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       return;
     }
 
-    bool hasJapanese = false;
+    final List<OcrBlock> blocksToTranslate = [];
     for (final block in ocrBlocks) {
       if (TranslationService.hasJapaneseText(block.text)) {
-        hasJapanese = true;
-        break;
+        blocksToTranslate.add(block);
       }
     }
 
-    if (!hasJapanese) {
-      debugPrint("[Main] No Japanese text detected in OCR blocks.");
+    if (blocksToTranslate.isEmpty) {
+      debugPrint("[Main] No Japanese text blocks detected.");
       await OverlayBridge.send({"status": "no_japanese_text"});
       return;
     }
 
-    final blockRecords = ocrBlocks.map((b) => (
+    final blockRecords = blocksToTranslate.map((b) => (
       text: b.text,
       x: b.boundingBox.left.toInt(),
       y: b.boundingBox.top.toInt(),
@@ -134,8 +160,8 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     debugPrint("[Main] Translated ${translatedTexts.length} blocks.");
 
     final List<Map<String, dynamic>> list = [];
-    for (int i = 0; i < ocrBlocks.length; i++) {
-      final block = ocrBlocks[i];
+    for (int i = 0; i < blocksToTranslate.length; i++) {
+      final block = blocksToTranslate[i];
       final rect = block.boundingBox;
       final text = (i < translatedTexts.length && translatedTexts[i].isNotEmpty)
           ? translatedTexts[i]
@@ -301,7 +327,16 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Gemma Screen Translator"),
-        backgroundColor: const Color(0xff1e1e2e),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
@@ -317,7 +352,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
                   return Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xff1e1e2e),
+                      color: Theme.of(context).colorScheme.surface,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: status.ready ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
@@ -341,7 +376,11 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
                           status.message,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: status.ready ? const Color(0xffa6adc8) : const Color(0xfff38ba8),
+                            color: status.ready 
+                                ? (Theme.of(context).brightness == Brightness.dark 
+                                    ? const Color(0xffa6adc8) 
+                                    : Colors.black87) 
+                                : const Color(0xfff38ba8),
                             fontSize: 13,
                           ),
                         ),
@@ -355,17 +394,17 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xff1e1e2e),
+                  color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xff313244)),
+                  border: Border.all(color: Theme.of(context).dividerColor),
                 ),
                 child: const Column(
                   children: [
                     Icon(Icons.translate, size: 48, color: Color(0xff89b4fa)),
                     SizedBox(height: 12),
                     Text(
-                      "Japanese to English",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                       "Japanese to English",
+                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     SizedBox(height: 6),
                     Text(
@@ -784,3 +823,71 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
     );
   }
 }
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Settings"),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              "Appearance",
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: ValueListenableBuilder<ThemeMode>(
+                valueListenable: themeNotifier,
+                builder: (context, currentMode, _) {
+                  return Column(
+                    children: [
+                      RadioListTile<ThemeMode>(
+                        title: const Text("Dark Theme"),
+                        value: ThemeMode.dark,
+                        groupValue: currentMode,
+                        onChanged: (mode) {
+                          if (mode != null) themeNotifier.value = mode;
+                        },
+                      ),
+                      const Divider(height: 1),
+                      RadioListTile<ThemeMode>(
+                        title: const Text("Light Theme"),
+                        value: ThemeMode.light,
+                        groupValue: currentMode,
+                        onChanged: (mode) {
+                          if (mode != null) themeNotifier.value = mode;
+                        },
+                      ),
+                      const Divider(height: 1),
+                      RadioListTile<ThemeMode>(
+                        title: const Text("System Default"),
+                        value: ThemeMode.system,
+                        groupValue: currentMode,
+                        onChanged: (mode) {
+                          if (mode != null) themeNotifier.value = mode;
+                        },
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
