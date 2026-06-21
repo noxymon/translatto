@@ -15,7 +15,7 @@ class OverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final backgroundPaint = Paint()
-      ..color = Colors.black.withOpacity(0.85)
+      ..color = Colors.black.withAlpha(217)
       ..style = PaintingStyle.fill;
 
     for (final block in translations) {
