@@ -57,6 +57,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
   bool _isOverlayRunning = false;
   bool _isModelReady = false;
   String _modelStatusMessage = "Checking Gemma model...";
+  bool _isTranslationInProgress = false;
   
   final _ocrService = OcrService();
   final _translationService = TranslationService();
@@ -122,6 +123,12 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
       return;
     }
 
+    if (_isTranslationInProgress) {
+      debugPrint("Translation already in progress. Ignoring request.");
+      return;
+    }
+    _isTranslationInProgress = true;
+
     try {
       final path = await _captureService.captureScreen();
       if (path == null) {
@@ -139,25 +146,22 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
       final view = WidgetsBinding.instance.platformDispatcher.views.first;
       final physicalSize = view.physicalSize;
 
-      // Important fix: Translate blocks SEQUENTIALLY to prevent concurrent LiteRT inference crash/OOM
+      // Extract text blocks for batched translation
+      final rawTexts = ocrBlocks.map((b) => b.text).toList();
+      final translatedTexts = await _translationService.translateBatch(rawTexts);
+
       final List<Map<String, dynamic>> list = [];
-      for (final block in ocrBlocks) {
-        try {
-          final translatedText = await _translationService.translate(block.text);
-          final rect = block.boundingBox;
-          list.add({
-            'text': translatedText,
-            'rect': [rect.left, rect.top, rect.right, rect.bottom],
-          });
-        } catch (e) {
-          debugPrint("Failed to translate block: ${block.text}, error: $e");
-          // Brittle recovery: Fallback to original Japanese text so screen overlay doesn't crash completely
-          final rect = block.boundingBox;
-          list.add({
-            'text': block.text,
-            'rect': [rect.left, rect.top, rect.right, rect.bottom],
-          });
-        }
+      for (int i = 0; i < ocrBlocks.length; i++) {
+        final block = ocrBlocks[i];
+        final rect = block.boundingBox;
+        final text = (i < translatedTexts.length && translatedTexts[i].isNotEmpty)
+            ? translatedTexts[i]
+            : block.text; // Fallback to original Japanese if translation failed
+        
+        list.add({
+          'text': text,
+          'rect': [rect.left, rect.top, rect.right, rect.bottom],
+        });
       }
 
       await FlutterOverlayWindow.shareData({
@@ -173,6 +177,8 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
         "status": "error",
         "message": "Capture failed: ${e.toString()}",
       });
+    } finally {
+      _isTranslationInProgress = false;
     }
   }
 
