@@ -7,9 +7,11 @@ import 'package:screen_translate/ocr_service.dart';
 import 'package:screen_translate/translation_service.dart';
 import 'package:screen_translate/capture_service.dart';
 import 'package:screen_translate/overlay_painter.dart';
+import 'package:screen_translate/overlay_bridge.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  OverlayBridge.init();
   // Start listener and model init in the background; UI starts immediately.
   unawaited(_initServicesAndListenForCapture());
   runApp(const MyApp());
@@ -18,6 +20,7 @@ void main() async {
 @pragma("vm:entry-point")
 void overlayMain() {
   WidgetsFlutterBinding.ensureInitialized();
+  OverlayBridge.init();
   runApp(const MaterialApp(
     debugShowCheckedModeBanner: false,
     home: OverlayWindowScreen(),
@@ -60,7 +63,7 @@ bool _isTranslationInProgress = false;
 
 Future<void> _runTranslationFlowAndSendToOverlay() async {
   if (!_modelStatusNotifier.value.ready) {
-    await FlutterOverlayWindow.shareData({
+    await OverlayBridge.send({
       "status": "error",
       "message": "Gemma model not ready. Please open the main app dashboard.",
     });
@@ -78,7 +81,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     final captureData = await _captureService.captureScreen();
     if (captureData == null) {
       debugPrint("[Main] captureScreen() returned null.");
-      await FlutterOverlayWindow.shareData({"status": "no_text"});
+      await OverlayBridge.send({"status": "no_text"});
       return;
     }
 
@@ -90,7 +93,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     final ocrBlocks = await _ocrService.extractText(path);
     debugPrint("[Main] OCR found ${ocrBlocks.length} blocks.");
     if (ocrBlocks.isEmpty) {
-      await FlutterOverlayWindow.shareData({"status": "no_text"});
+      await OverlayBridge.send({"status": "no_text"});
       return;
     }
 
@@ -115,7 +118,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       });
     }
 
-    await FlutterOverlayWindow.shareData({
+    await OverlayBridge.send({
       "status": "success",
       "translations": list,
       "imageWidth": imageWidth,
@@ -123,7 +126,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     });
   } catch (e) {
     debugPrint("[Main] Translation flow error: $e");
-    await FlutterOverlayWindow.shareData({
+    await OverlayBridge.send({
       "status": "error",
       "message": "Capture failed: ${e.toString()}",
     });
@@ -133,19 +136,19 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
 }
 
 Future<void> _initServicesAndListenForCapture() async {
-  debugPrint("[Main] _initServicesAndListenForCapture() called — setting up overlayListener now.");
+  debugPrint("[Main] _initServicesAndListenForCapture() called — setting up OverlayBridge listener now.");
   // Set listener FIRST — before any await — so it's active as early as possible.
-  FlutterOverlayWindow.overlayListener.listen(
+  OverlayBridge.messages.listen(
     (data) async {
-      debugPrint("[Main] overlayListener received: $data (type: ${data.runtimeType})");
+      debugPrint("[Main] OverlayBridge received: $data (type: ${data.runtimeType})");
       if (data == "capture") {
         await _runTranslationFlowAndSendToOverlay();
       }
     },
-    onError: (e) => debugPrint("[Main] overlayListener error: $e"),
-    onDone: () => debugPrint("[Main] overlayListener stream closed!"),
+    onError: (e) => debugPrint("[Main] OverlayBridge error: $e"),
+    onDone: () => debugPrint("[Main] OverlayBridge stream closed!"),
   );
-  debugPrint("[Main] overlayListener.listen() registered.");
+  debugPrint("[Main] OverlayBridge.messages.listen() registered.");
 
   final docDir = await getApplicationDocumentsDirectory();
   final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
@@ -378,8 +381,8 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   @override
   void initState() {
     super.initState();
-    // Listen to translation results shared by the main app isolate
-    _overlaySubscription = FlutterOverlayWindow.overlayListener.listen((data) {
+    // Listen to translation results shared by the main app isolate via custom bridge
+    _overlaySubscription = OverlayBridge.messages.listen((data) {
       _translationTimeoutTimer?.cancel();
       if (data is Map) {
         if (data["status"] == "no_text") {
@@ -472,12 +475,12 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
     });
 
     // Request translation from the main app isolate
-    debugPrint("[Overlay] Calling shareData('capture')...");
+    debugPrint("[Overlay] Calling OverlayBridge.send('capture')...");
     try {
-      final result = await FlutterOverlayWindow.shareData("capture");
-      debugPrint("[Overlay] shareData('capture') returned: $result");
+      await OverlayBridge.send("capture");
+      debugPrint("[Overlay] OverlayBridge.send('capture') completed");
     } catch (e) {
-      debugPrint("[Overlay] shareData ERROR: $e");
+      debugPrint("[Overlay] OverlayBridge.send ERROR: $e");
     }
   }
 

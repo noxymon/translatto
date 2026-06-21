@@ -1,0 +1,51 @@
+<h2>Design Section 3: Lifecycle & Error Handling</h2>
+<p class="subtitle">Managing memory, performance, and runtime errors in Flutter</p>
+
+<div class="section">
+  <h3>Lifecycle & Resource Management</h3>
+  
+  <div style="background: #1e1e2e; padding: 20px; border-radius: 12px; margin-bottom: 20px; font-family: sans-serif; color: #cdd6f4; border: 1px solid #313244; display: flex; flex-direction: column; gap: 15px;">
+    
+    <div>
+      <strong style="color: #f38ba8; font-size: 14px;">1. Memory Management (Gemma 4 Lifecycle)</strong>
+      <p style="margin-top: 5px; font-size: 13px; color: #a6adc8;">
+        Gemma model files are large (~1.5GB+). To prevent OS background process kills (OOM):
+        <br/>
+        • <strong>Lazy Load:</strong> Model only initialized when user activates overlay.
+        <br/>
+        • <strong>Dispose:</strong> Release model resources when overlay is dismissed by user.
+      </p>
+    </div>
+
+    <div>
+      <strong style="color: #fab387; font-size: 14px;">2. Permissions Flow</strong>
+      <p style="margin-top: 5px; font-size: 13px; color: #a6adc8;">
+        • <strong>Overlay:</strong> Request system overlay permission (leads user to Settings page).
+        <br/>
+        • <strong>Screenshare:</strong> MediaProjection permission requested each session start or persistently if allowed by OS.
+      </p>
+    </div>
+
+    <div>
+      <strong style="color: #89b4fa; font-size: 14px;">3. Error States</strong>
+      <p style="margin-top: 5px; font-size: 13px; color: #a6adc8;">
+        • <strong>Missing Model:</strong> If Gemma `.bin` file is missing in App Docs, show download setup guide in main app UI.
+        <br/>
+        • <strong>Zero OCR Hits:</strong> If ML Kit finds no Japanese characters, show a brief "No text found" overlay toast and auto-dismiss.
+        <br/>
+        • <strong>High Latency Spinner:</strong> Display a subtle loading animation in the overlay boxes while `flutter_gemma` processes translation.
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve_lifecycle" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>Approve Lifecycle & Errors</h3>
+      <p>Approve Section 3 and generate the final design document.</p>
+    </div>
+  </div>
+</div>

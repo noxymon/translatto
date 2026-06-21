@@ -1,0 +1,63 @@
+<h2>Design Section 1: Architecture & Data Flow</h2>
+<p class="subtitle">Monolithic Overlay Service architecture for Android Screen Translator</p>
+
+<div class="section">
+  <h3>Data Flow Diagram</h3>
+  <div style="background: #1e1e2e; padding: 25px; border-radius: 12px; margin-bottom: 20px; font-family: sans-serif; color: #cdd6f4; display: flex; flex-direction: column; gap: 15px; border: 1px solid #313244;">
+    
+    <!-- Step 1 -->
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div style="background: #f38ba8; color: #11111b; font-weight: bold; width: 140px; padding: 10px; border-radius: 6px; text-align: center;">
+        Screen Capture
+      </div>
+      <div style="color: #a6e3a1; font-weight: bold; font-size: 20px;">➔</div>
+      <div style="flex-grow: 1; margin-left: 20px; font-size: 13px;">
+        <strong>MediaProjection API:</strong> Captures raw screenshot bitmap of current screen on floating button click.
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div style="background: #fab387; color: #11111b; font-weight: bold; width: 140px; padding: 10px; border-radius: 6px; text-align: center;">
+        ML Kit OCR
+      </div>
+      <div style="color: #a6e3a1; font-weight: bold; font-size: 20px;">➔</div>
+      <div style="flex-grow: 1; margin-left: 20px; font-size: 13px;">
+        <strong>Google ML Kit Text Recognition:</strong> Detects Japanese text blocks, extracts text string and precise bounding box coordinates.
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div style="background: #89b4fa; color: #11111b; font-weight: bold; width: 140px; padding: 10px; border-radius: 6px; text-align: center;">
+        Local Gemma 4
+      </div>
+      <div style="color: #a6e3a1; font-weight: bold; font-size: 20px;">➔</div>
+      <div style="flex-grow: 1; margin-left: 20px; font-size: 13px;">
+        <strong>Quantized Gemma 4 (MediaPipe):</strong> Processes Japanese strings on-device. Generates English translations.
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div style="background: #a6e3a1; color: #11111b; font-weight: bold; width: 140px; padding: 10px; border-radius: 6px; text-align: center;">
+        AR Overlay View
+      </div>
+      <div style="color: #a6e3a1; font-weight: bold; font-size: 20px;">➔</div>
+      <div style="flex-grow: 1; margin-left: 20px; font-size: 13px;">
+        <strong>Custom Window Overlay:</strong> Draws matching solid background color over original text, then renders English translation on top in matching bounds.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve_arch" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>Approve Architecture</h3>
+      <p>Approve Section 1 architecture and proceed to Section 2 (Components & Lifecycle).</p>
+    </div>
+  </div>
+</div>

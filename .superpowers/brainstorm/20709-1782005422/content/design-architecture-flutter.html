@@ -1,0 +1,51 @@
+<h2>Design Section 1: Flutter + flutter_gemma Architecture</h2>
+<p class="subtitle">Hybrid Flutter-Kotlin architecture for Android Screen Translator</p>
+
+<div class="section">
+  <h3>Data & Component Flow</h3>
+  <div style="background: #1e1e2e; padding: 20px; border-radius: 12px; margin-bottom: 20px; font-family: sans-serif; color: #cdd6f4; border: 1px solid #313244;">
+    
+    <!-- Component 1 -->
+    <div style="margin-bottom: 15px; border-bottom: 1px solid #313244; padding-bottom: 10px;">
+      <span style="background: #cba6f7; color: #11111b; font-weight: bold; padding: 4px 8px; border-radius: 4px; font-size: 12px; text-transform: uppercase;">1. Native Kotlin Service</span>
+      <p style="margin-top: 8px; font-size: 13px;">
+        Runs background service for **Floating Action Button Overlay** and **MediaProjection API**. Captures screen bitmap on click, passes it to Flutter via **Platform Channels**.
+      </p>
+    </div>
+
+    <!-- Component 2 -->
+    <div style="margin-bottom: 15px; border-bottom: 1px solid #313244; padding-bottom: 10px;">
+      <span style="background: #fab387; color: #11111b; font-weight: bold; padding: 4px 8px; border-radius: 4px; font-size: 12px; text-transform: uppercase;">2. Google ML Kit OCR (Dart)</span>
+      <p style="margin-top: 8px; font-size: 13px;">
+        Flutter receives bitmap. Runs offline `google_mlkit_text_recognition` to detect Japanese characters and get their bounding box coordinates.
+      </p>
+    </div>
+
+    <!-- Component 3 -->
+    <div style="margin-bottom: 15px; border-bottom: 1px solid #313244; padding-bottom: 10px;">
+      <span style="background: #89b4fa; color: #11111b; font-weight: bold; padding: 4px 8px; border-radius: 4px; font-size: 12px; text-transform: uppercase;">3. Local Gemma 4 via flutter_gemma</span>
+      <p style="margin-top: 8px; font-size: 13px;">
+        Feeds extracted Japanese strings into `flutter_gemma` package. It uses MediaPipe LLM Inference SDK to run Gemma locally on-device and return English text.
+      </p>
+    </div>
+
+    <!-- Component 4 -->
+    <div style="padding-bottom: 5px;">
+      <span style="background: #a6e3a1; color: #11111b; font-weight: bold; padding: 4px 8px; border-radius: 4px; font-size: 12px; text-transform: uppercase;">4. AR Overlay Renderer</span>
+      <p style="margin-top: 8px; font-size: 13px;">
+        Draws translations directly on the overlay window at exact Japanese coordinates using Flutter CustomPainter (overlay window hosted by package like `flutter_overlay_window`).
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve_flutter" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>Approve Flutter Architecture</h3>
+      <p>Accept the Flutter + `flutter_gemma` design architecture.</p>
+    </div>
+  </div>
+</div>

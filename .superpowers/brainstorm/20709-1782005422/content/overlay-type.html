@@ -1,0 +1,78 @@
+<h2>How should translation display on Android?</h2>
+<p class="subtitle">Select the preferred user interface style for overlaying translations</p>
+
+<div class="options">
+  <div class="option" data-choice="bubble" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Floating Translation Bubbles</h3>
+      <p>Interactive tooltips overlaying close to Japanese text. Draggable and dismissible.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="replace" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>In-Place AR Overlay</h3>
+      <p>Hides Japanese text and draws English translation exactly in its place/coordinates.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="dock" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Bottom Sheet / Docked Panel</h3>
+      <p>Original screen remains untouched; translations display in a clean bottom sliding drawer.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 30px;">
+  <h3>Visual Previews</h3>
+  <div class="split">
+    <!-- Option A Mockup -->
+    <div class="mockup">
+      <div class="mockup-header">A) Floating Bubbles</div>
+      <div class="mockup-body" style="background: #1e1e2e; height: 260px; display: flex; flex-direction: column; justify-content: space-around; padding: 15px; border-radius: 8px;">
+        <div style="color: #6c7086; font-size: 11px; border-bottom: 1px solid #313244; padding-bottom: 5px;">Manga / Game Screen</div>
+        <div style="background: #313244; padding: 10px; border-radius: 6px; font-size: 14px; position: relative;">
+          こんにちは！
+          <div style="position: absolute; top: -15px; right: -10px; background: #a6e3a1; color: #11111b; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">Hello!</div>
+        </div>
+        <div style="background: #313244; padding: 10px; border-radius: 6px; font-size: 14px; position: relative; width: 60%; margin-left: 20px;">
+          お元気ですか？
+          <div style="position: absolute; top: 12px; right: -80px; background: #89b4fa; color: #11111b; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">How are you?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Option B Mockup -->
+    <div class="mockup">
+      <div class="mockup-header">B) AR In-Place</div>
+      <div class="mockup-body" style="background: #1e1e2e; height: 260px; display: flex; flex-direction: column; justify-content: space-around; padding: 15px; border-radius: 8px;">
+        <div style="color: #6c7086; font-size: 11px; border-bottom: 1px solid #313244; padding-bottom: 5px;">Manga / Game Screen</div>
+        <div style="background: #313244; padding: 10px; border-radius: 6px; color: #a6e3a1; font-size: 14px; text-align: center; border: 1px dashed #a6e3a1;">
+          Hello!
+        </div>
+        <div style="background: #313244; padding: 10px; border-radius: 6px; color: #89b4fa; font-size: 14px; text-align: center; width: 60%; margin-left: 20px; border: 1px dashed #89b4fa;">
+          How are you?
+        </div>
+      </div>
+    </div>
+
+    <!-- Option C Mockup -->
+    <div class="mockup">
+      <div class="mockup-header">C) Bottom Sheet</div>
+      <div class="mockup-body" style="background: #1e1e2e; height: 260px; display: flex; flex-direction: column; justify-content: space-between; border-radius: 8px; overflow: hidden; position: relative;">
+        <div style="padding: 10px 15px;">
+          <div style="color: #6c7086; font-size: 11px; border-bottom: 1px solid #313244; padding-bottom: 5px; margin-bottom: 10px;">Manga / Game Screen</div>
+          <div style="background: #313244; padding: 6px; border-radius: 4px; font-size: 12px; margin-bottom: 5px;">こんにちは！</div>
+          <div style="background: #313244; padding: 6px; border-radius: 4px; font-size: 12px; width: 70%;">お元気ですか？</div>
+        </div>
+        <div style="background: #181825; border-top: 2px solid #cdd6f4; padding: 12px; font-size: 11px;">
+          <strong style="color: #f38ba8; display: block; margin-bottom: 4px;">Translation Drawer</strong>
+          • Hello!<br/>
+          • How are you?
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

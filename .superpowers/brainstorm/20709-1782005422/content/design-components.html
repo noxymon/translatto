@@ -1,0 +1,62 @@
+<h2>Design Section 2: Component Breakdown & Packages</h2>
+<p class="subtitle">Core Flutter packages and platform APIs utilized</p>
+
+<div class="section">
+  <h3>Component Stack</h3>
+  
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+    
+    <div style="background: #1e1e2e; padding: 15px; border-radius: 8px; border: 1px solid #313244;">
+      <h4 style="color: #cba6f7; margin-top: 0;">1. Screen Capture (Screenshare)</h4>
+      <p style="font-size: 13px; color: #a6adc8; line-height: 1.4;">
+        Uses **MediaProjection API** (standard screenshare permission dialog on Android). Managed via native Kotlin platform channel or package.
+        <br/><br/>
+        <strong>Package:</strong> Custom platform channel invoking `MediaProjectionManager` and `ImageReader` to capture clean screen bitmaps.
+      </p>
+    </div>
+
+    <div style="background: #1e1e2e; padding: 15px; border-radius: 8px; border: 1px solid #313244;">
+      <h4 style="color: #fab387; margin-top: 0;">2. Text Recognition (OCR)</h4>
+      <p style="font-size: 13px; color: #a6adc8; line-height: 1.4;">
+        Processes the captured bitmap to extract text and precise screen coordinates (left, top, width, height) of Japanese characters.
+        <br/><br/>
+        <strong>Package:</strong> `google_mlkit_text_recognition: ^0.13.0` (supports local high-accuracy Japanese OCR model).
+      </p>
+    </div>
+
+    <div style="background: #1e1e2e; padding: 15px; border-radius: 8px; border: 1px solid #313244;">
+      <h4 style="color: #89b4fa; margin-top: 0;">3. Local Translation (LLM)</h4>
+      <p style="font-size: 13px; color: #a6adc8; line-height: 1.4;">
+        Runs the quantized Gemma model offline on the mobile CPU/GPU. Passes Japanese sentences, returns translation.
+        <br/><br/>
+        <strong>Package:</strong> `flutter_gemma: ^1.0.1` (wraps MediaPipe LLM Inference). Model downloaded to local App Documents directory.
+      </p>
+    </div>
+
+    <div style="background: #1e1e2e; padding: 15px; border-radius: 8px; border: 1px solid #313244;">
+      <h4 style="color: #a6e3a1; margin-top: 0;">4. System Window Overlay</h4>
+      <p style="font-size: 13px; color: #a6adc8; line-height: 1.4;">
+        Renders the transparent AR overlay on top of active games, manga readers, or other apps. Draws translations exactly in position.
+        <br/><br/>
+        <strong>Package:</strong> `flutter_overlay_window: ^0.4.0` (or custom Kotlin system alert overlay window for performance).
+      </p>
+    </div>
+
+  </div>
+
+  <h3>Key Dependency Flow</h3>
+  <div style="background: #181825; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 12px; border: 1px dashed #45475a;">
+    flutter_gemma (Inference Engine) ➔ Needs gemma-2b-it-cpu-int4.bin model file in App Docs folder.<br/>
+    google_mlkit_text_recognition ➔ Automatically downloads Japanese OCR model on first run.
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="approve_components" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>Approve Components</h3>
+      <p>Approve Section 2 components and proceed to Section 3 (Error Handling & Lifecycle).</p>
+    </div>
+  </div>
+</div>
