@@ -88,7 +88,8 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
     final path = captureData['path'] as String;
     final imageWidth = (captureData['width'] as num).toDouble();
     final imageHeight = (captureData['height'] as num).toDouble();
-    debugPrint("[Main] Screen captured: $path ($imageWidth x $imageHeight)");
+    final cropY = (captureData['cropY'] as num?)?.toDouble() ?? 0.0;
+    debugPrint("[Main] Screen captured: $path ($imageWidth x $imageHeight) cropY=$cropY");
 
     final ocrBlocks = await _ocrService.extractText(path);
     debugPrint("[Main] OCR found ${ocrBlocks.length} blocks.");
@@ -123,6 +124,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       "translations": list,
       "imageWidth": imageWidth,
       "imageHeight": imageHeight,
+      "cropY": cropY,
     });
   } catch (e) {
     debugPrint("[Main] Translation flow error: $e");
@@ -373,6 +375,10 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   bool _showTranslationLayer = false;
   List<TranslatedBlock> _translations = [];
   Size _imageSize = Size.zero;
+  /// Pixel height of the status bar that was cropped from the screenshot.
+  /// Used to offset overlay box positions since the overlay window starts at
+  /// y=0 of the full screen (including the status bar).
+  double _cropYPixels = 0.0;
   StreamSubscription? _overlaySubscription;
   String? _errorMessage;
   Timer? _errorTimer;
@@ -425,11 +431,13 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
 
           final double imageWidth = (data["imageWidth"] as num).toDouble();
           final double imageHeight = (data["imageHeight"] as num).toDouble();
+          final double cropY = (data["cropY"] as num?)?.toDouble() ?? 0.0;
 
           setState(() {
             _isTranslating = false;
             _translations = list;
             _imageSize = Size(imageWidth, imageHeight);
+            _cropYPixels = cropY;
             _showTranslationLayer = true;
             _errorMessage = null;
           });
@@ -531,6 +539,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                   painter: OverlayPainter(
                     translations: _translations,
                     imageSize: _imageSize,
+                    cropYPixels: _cropYPixels,
                   ),
                 ),
               ),

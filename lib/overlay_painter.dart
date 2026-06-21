@@ -22,8 +22,16 @@ class TranslatedBlock {
 class OverlayPainter extends CustomPainter {
   final List<TranslatedBlock> translations;
   final Size imageSize;
+  /// Physical pixel height of the status bar that was cropped from the
+  /// screenshot. Added to each block's Y position so coordinates map
+  /// from cropped-image space back into full-screen overlay space.
+  final double cropYPixels;
 
-  OverlayPainter({required this.translations, required this.imageSize});
+  OverlayPainter({
+    required this.translations,
+    required this.imageSize,
+    this.cropYPixels = 0.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -35,13 +43,16 @@ class OverlayPainter extends CustomPainter {
 
     final double scaleX = size.width / imageSize.width;
     final double scaleY = size.height / imageSize.height;
+    // Offset in canvas pixels to shift OCR coords (cropped-image space) into
+    // full-screen overlay canvas space (which starts at the status bar top).
+    final double yOffset = cropYPixels * scaleY;
 
     for (final block in translations) {
       final scaledRect = Rect.fromLTRB(
         block.rect.left * scaleX,
-        block.rect.top * scaleY,
+        block.rect.top * scaleY + yOffset,
         block.rect.right * scaleX,
-        block.rect.bottom * scaleY,
+        block.rect.bottom * scaleY + yOffset,
       );
 
       // Draw translated English text inside coordinates
@@ -82,6 +93,8 @@ class OverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant OverlayPainter oldDelegate) {
-    return !listEquals(oldDelegate.translations, translations) || oldDelegate.imageSize != imageSize;
+    return !listEquals(oldDelegate.translations, translations) ||
+        oldDelegate.imageSize != imageSize ||
+        oldDelegate.cropYPixels != cropYPixels;
   }
 }

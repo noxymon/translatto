@@ -109,12 +109,16 @@ class OcrBlockMerger {
   }
 
   /// Iteratively groups and merges blocks using the three phases.
+  /// [maxCharsPerBlock] prevents merged blocks from exceeding a character
+  /// limit, which would overflow the LiteRT model's token budget and cause
+  /// a DYNAMIC_UPDATE_SLICE crash.
   static List<OcrBlock> merge(
     List<OcrBlock> blocks, {
     double verticalOverlapThreshold = 0.5,
     double maxHorizontalGap = 30.0,
     double horizontalOverlapThreshold = 0.5,
     double maxVerticalGap = 25.0,
+    int maxCharsPerBlock = 280,
   }) {
     if (blocks.isEmpty) return [];
 
@@ -124,6 +128,7 @@ class OcrBlockMerger {
     result = _mergePhase(
       result,
       (a, b) => rectsOverlap(a.boundingBox, b.boundingBox),
+      maxCharsPerBlock: maxCharsPerBlock,
     );
 
     // Phase 2: Horizontal Alignment
@@ -135,6 +140,7 @@ class OcrBlockMerger {
         verticalOverlapThreshold: verticalOverlapThreshold,
         maxHorizontalGap: maxHorizontalGap,
       ),
+      maxCharsPerBlock: maxCharsPerBlock,
     );
 
     // Phase 3: Vertical Alignment
@@ -146,16 +152,19 @@ class OcrBlockMerger {
         horizontalOverlapThreshold: horizontalOverlapThreshold,
         maxVerticalGap: maxVerticalGap,
       ),
+      maxCharsPerBlock: maxCharsPerBlock,
     );
 
     return result;
   }
 
   /// Helper to run a single phase of merging.
+  /// Skips any merge that would produce a block exceeding [maxCharsPerBlock].
   static List<OcrBlock> _mergePhase(
     List<OcrBlock> blocks,
-    bool Function(OcrBlock a, OcrBlock b) shouldMerge,
-  ) {
+    bool Function(OcrBlock a, OcrBlock b) shouldMerge, {
+    int maxCharsPerBlock = 280,
+  }) {
     List<OcrBlock> workingList = List.from(blocks);
     bool mergedAny = true;
 
@@ -167,6 +176,9 @@ class OcrBlockMerger {
       for (int i = 0; i < workingList.length; i++) {
         for (int j = i + 1; j < workingList.length; j++) {
           if (shouldMerge(workingList[i], workingList[j])) {
+            // Skip merge if combined text would exceed model token budget
+            final combinedLen = workingList[i].text.length + workingList[j].text.length;
+            if (combinedLen > maxCharsPerBlock) continue;
             indexA = i;
             indexB = j;
             mergedAny = true;
