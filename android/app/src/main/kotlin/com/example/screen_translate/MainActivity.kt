@@ -7,9 +7,12 @@ import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.os.Build
+import android.os.Bundle
 import android.util.DisplayMetrics
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -26,20 +29,25 @@ class MainActivity: FlutterActivity() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
+    private var isCapturing = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "captureScreen" -> {
+                "startCaptureSession" -> {
                     pendingResult?.error("CANCELLED", "Overwritten by concurrent request", null)
                     pendingResult = result
                     
                     if (mediaProjection != null) {
-                        // Reuse active MediaProjection to prevent repetitive consent prompts and background activity blocks
-                        captureScreenFrame(result)
+                        result.success(true)
+                        pendingResult = null
                     } else {
                         val intent = mediaProjectionManager?.createScreenCaptureIntent()
                         if (intent != null) {
@@ -50,9 +58,12 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                 }
+                "captureScreen" -> {
+                    captureScreenFrame(result)
+                }
                 "stopCaptureSession" -> {
                     cleanupResources()
-                    result.success(null)
+                    result.success(true)
                 }
                 else -> {
                     result.notImplemented()
@@ -64,22 +75,34 @@ class MainActivity: FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_CODE) {
-            val result = pendingResult
-            if (resultCode == Activity.RESULT_OK && data != null && result != null) {
+            val pending = pendingResult
+            if (resultCode == Activity.RESULT_OK && data != null && pending != null) {
                 try {
+                    // Start foreground service before retrieving MediaProjection token for Android 14+ compliance
+                    val serviceIntent = Intent(this, MediaProjectionService::class.java)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(serviceIntent)
+                    } else {
+                        startService(serviceIntent)
+                    }
+
                     mediaProjection = mediaProjectionManager?.getMediaProjection(resultCode, data)
                     if (mediaProjection == null) {
-                        result.error("ERROR", "MediaProjection is null", null)
+                        stopService(serviceIntent)
+                        pending.error("ERROR", "MediaProjection is null", null)
                         pendingResult = null
                         return
                     }
-                    captureScreenFrame(result)
+
+                    setupCaptureSession(pending)
                 } catch (e: Exception) {
-                    result.error("ERROR", "Failed to init MediaProjection: ${e.message}", null)
+                    val serviceIntent = Intent(this, MediaProjectionService::class.java)
+                    stopService(serviceIntent)
+                    pending.error("ERROR", "Failed to init MediaProjection: ${e.message}", null)
                     pendingResult = null
                 }
             } else {
-                result?.error("CANCELLED", "Screen capture permission denied", null)
+                pending?.error("CANCELLED", "Screen capture permission denied", null)
                 pendingResult = null
             }
         }
@@ -97,16 +120,38 @@ class MainActivity: FlutterActivity() {
         cleanupFrameResources()
         mediaProjection?.stop()
         mediaProjection = null
+        
+        try {
+            val serviceIntent = Intent(this, MediaProjectionService::class.java)
+            stopService(serviceIntent)
+        } catch (e: Exception) {
+            // Ignore service stop failure
+        }
     }
 
-    private fun captureScreenFrame(result: MethodChannel.Result) {
-        val metrics = DisplayMetrics()
-        windowManager.defaultDisplay.getRealMetrics(metrics)
-        val width = metrics.widthPixels
-        val height = metrics.heightPixels
-        val density = metrics.densityDpi
+    private fun setupCaptureSession(result: MethodChannel.Result) {
+        val width: Int
+        val height: Int
+        val density: Int
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val windowMetrics = windowManager.currentWindowMetrics
+            val bounds = windowMetrics.bounds
+            width = bounds.width()
+            height = bounds.height()
+            density = resources.configuration.densityDpi
+        } else {
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            width = metrics.widthPixels
+            height = metrics.heightPixels
+            density = metrics.densityDpi
+        }
 
         try {
+            cleanupFrameResources()
+            // Set maxImages = 2 for buffering
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
             virtualDisplay = mediaProjection?.createVirtualDisplay(
                 "ScreenCapture",
@@ -118,71 +163,104 @@ class MainActivity: FlutterActivity() {
                 null,
                 null
             )
+            result.success(true)
+            pendingResult = null
+        } catch (e: Exception) {
+            cleanupResources()
+            result.error("ERROR", "Failed to create virtual display: ${e.message}", null)
+            pendingResult = null
+        }
+    }
 
-            imageReader?.setOnImageAvailableListener({ reader ->
-                try {
-                    val image = reader.acquireLatestImage()
-                    if (image != null) {
-                        try {
-                            reader.setOnImageAvailableListener(null, null)
-                            
-                            val planes = image.planes
-                            val buffer = planes[0].buffer
-                            val pixelStride = planes[0].pixelStride
-                            val rowStride = planes[0].rowStride
-                            val rowPadding = rowStride - pixelStride * width
+    private fun captureScreenFrame(result: MethodChannel.Result) {
+        val reader = imageReader
+        if (reader == null) {
+            result.error("ERROR", "Capture session not active", null)
+            return
+        }
 
-                            val bitmap = Bitmap.createBitmap(
-                                width + rowPadding / pixelStride,
-                                height,
-                                Bitmap.Config.ARGB_8888
-                            )
-                            bitmap.copyPixelsFromBuffer(buffer)
+        if (isCapturing) {
+            result.error("BUSY", "Another capture is already in progress", null)
+            return
+        }
+        isCapturing = true
 
-                            val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                            bitmap.recycle()
-
-                            Thread {
-                                try {
-                                    val file = File(cacheDir, "screen_capture.png")
-                                    val out = FileOutputStream(file)
-                                    cleanBitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
-                                    out.flush()
-                                    out.close()
-                                    
-                                    runOnUiThread {
-                                        cleanupFrameResources()
-                                        result.success(file.absolutePath)
-                                    }
-                                } catch (e: Exception) {
-                                    runOnUiThread {
-                                        cleanupFrameResources()
-                                        result.error("ERROR", "Failed to save frame: ${e.message}", null)
-                                    }
-                                } finally {
-                                    cleanBitmap.recycle()
-                                    runOnUiThread {
-                                        pendingResult = null
-                                    }
-                                }
-                            }.start()
-                        } finally {
-                            // Guarantee native graphics Image buffer is closed to prevent leaks and hangs
-                            image.close()
+        try {
+            val image = reader.acquireLatestImage()
+            if (image != null) {
+                processImageAndReply(image, result)
+            } else {
+                reader.setOnImageAvailableListener({ r ->
+                    try {
+                        val img = r.acquireLatestImage()
+                        if (img != null) {
+                            r.setOnImageAvailableListener(null, null)
+                            processImageAndReply(img, result)
                         }
+                    } catch (e: Exception) {
+                        r.setOnImageAvailableListener(null, null)
+                        runOnUiThread {
+                            isCapturing = false
+                            result.error("ERROR", "Failed to acquire image: ${e.message}", null)
+                        }
+                    }
+                }, null)
+            }
+        } catch (e: Exception) {
+            isCapturing = false
+            result.error("ERROR", "Failed to capture frame: ${e.message}", null)
+        }
+    }
+
+    private fun processImageAndReply(image: Image, result: MethodChannel.Result) {
+        try {
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val width = image.width
+            val height = image.height
+            val rowPadding = rowStride - pixelStride * width
+
+            val bitmap = Bitmap.createBitmap(
+                width + rowPadding / pixelStride,
+                height,
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+
+            val cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+            bitmap.recycle()
+
+            Thread {
+                try {
+                    val file = File(cacheDir, "screen_capture.png")
+                    val out = FileOutputStream(file)
+                    cleanBitmap.compress(Bitmap.CompressFormat.PNG, 90, out)
+                    out.flush()
+                    out.close()
+                    
+                    runOnUiThread {
+                        result.success(file.absolutePath)
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
-                        cleanupFrameResources()
-                        result.error("ERROR", "Failed to capture frame: ${e.message}", null)
-                        pendingResult = null
+                        result.error("ERROR", "Failed to save frame: ${e.message}", null)
+                    }
+                } finally {
+                    cleanBitmap.recycle()
+                    runOnUiThread {
+                        isCapturing = false
                     }
                 }
-            }, null)
+            }.start()
         } catch (e: Exception) {
-            cleanupFrameResources()
-            result.error("ERROR", "Failed to initialize capture: ${e.message}", null)
-            pendingResult = null
+            runOnUiThread {
+                isCapturing = false
+                result.error("ERROR", "Failed to process image: ${e.message}", null)
+            }
+        } finally {
+            image.close()
         }
     }
 

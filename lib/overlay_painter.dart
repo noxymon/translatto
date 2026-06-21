@@ -6,6 +6,17 @@ class TranslatedBlock {
   final Rect rect;
 
   TranslatedBlock({required this.text, required this.rect});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TranslatedBlock &&
+          runtimeType == other.runtimeType &&
+          text == other.text &&
+          rect == other.rect;
+
+  @override
+  int get hashCode => text.hashCode ^ rect.hashCode;
 }
 
 class OverlayPainter extends CustomPainter {
