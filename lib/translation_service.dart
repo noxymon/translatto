@@ -6,6 +6,12 @@ class TranslationService {
   bool _isInitialized = false;
   InferenceModel? _model;
 
+  @visibleForTesting
+  set model(InferenceModel? value) {
+    _model = value;
+    _isInitialized = value != null;
+  }
+
   Future<void> init(String modelPath) async {
     if (_isInitialized) {
       debugPrint("[TranslationService] init() called but already initialized — skipping.");
