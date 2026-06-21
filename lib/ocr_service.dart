@@ -5,7 +5,12 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 class OcrBlock {
   final String text;
   final Rect boundingBox;
-  OcrBlock({required this.text, required this.boundingBox});
+  final String recognizedLanguage;
+  OcrBlock({
+    required this.text,
+    required this.boundingBox,
+    this.recognizedLanguage = "auto",
+  });
 }
 
 class OcrBlockMerger {
@@ -102,9 +107,14 @@ class OcrBlockMerger {
       }
     }
 
+    final String mergedLanguage = a.recognizedLanguage != "auto" 
+        ? a.recognizedLanguage 
+        : b.recognizedLanguage;
+
     return OcrBlock(
       text: mergedText,
       boundingBox: mergedBox,
+      recognizedLanguage: mergedLanguage,
     );
   }
 
@@ -240,10 +250,16 @@ class OcrService {
   Future<List<OcrBlock>> extractText(String imagePath) async {
     final inputImage = InputImage.fromFilePath(imagePath);
     final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
-    final ocrBlocks = recognizedText.blocks.map((b) => OcrBlock(
-      text: b.text,
-      boundingBox: b.boundingBox,
-    )).toList();
+    final ocrBlocks = recognizedText.blocks.map((b) {
+      final String sourceLang = b.recognizedLanguages.isNotEmpty
+          ? b.recognizedLanguages.first
+          : "auto";
+      return OcrBlock(
+        text: b.text,
+        boundingBox: b.boundingBox,
+        recognizedLanguage: sourceLang,
+      );
+    }).toList();
     return OcrBlockMerger.merge(ocrBlocks);
   }
 

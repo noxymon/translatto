@@ -47,6 +47,7 @@ final targetLanguageNotifier = ValueNotifier<String>("English");
 
 const List<String> supportedLanguages = [
   "English",
+  "Indonesia",
   "Indonesian",
   "Japanese",
   "Chinese",
@@ -114,7 +115,7 @@ final _captureService = CaptureService();
 
 /// Notifies the dashboard UI of model load state changes.
 final _modelStatusNotifier = ValueNotifier<({bool ready, String message})>(
-  (ready: false, message: "Checking Gemma model..."),
+  (ready: false, message: "Checking local model..."),
 );
 
 bool _isTranslationInProgress = false;
@@ -124,7 +125,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
   if (!_modelStatusNotifier.value.ready) {
     await OverlayBridge.send({
       "status": "error",
-      "message": "Gemma model not ready. Please open the main app dashboard.",
+      "message": "Local model not ready. Please open the main app dashboard.",
     });
     return;
   }
@@ -176,6 +177,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       text: b.text,
       x: b.boundingBox.left.toInt(),
       y: b.boundingBox.top.toInt(),
+      sourceLanguage: b.recognizedLanguage,
     )).toList();
     final translatedTexts = await _translationService.translateBatch(
       blockRecords,
@@ -192,9 +194,11 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
       final text = (i < translatedTexts.length && translatedTexts[i].isNotEmpty)
           ? translatedTexts[i]
           : block.text;
+      final originalLineCount = block.text.split('\n').length;
       list.add({
         'text': text,
         'rect': [rect.left, rect.top, rect.right, rect.bottom],
+        'originalLineCount': originalLineCount,
       });
     }
 
@@ -348,6 +352,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
       setState(() {
         _isOverlayRunning = true;
       });
+      await _captureService.minimizeApp();
     }
   }
 
@@ -616,6 +621,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                 (rectList[2] as num).toDouble(),
                 (rectList[3] as num).toDouble(),
               ),
+              originalLineCount: (item["originalLineCount"] as num?)?.toInt() ?? 1,
             );
           }).toList();
 
@@ -707,6 +713,21 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
       debugPrint("[Overlay] OverlayBridge.send('capture') completed");
     } catch (e) {
       debugPrint("[Overlay] OverlayBridge.send ERROR: $e");
+      if (mounted) {
+        setState(() {
+          _isTranslating = false;
+          _errorMessage = "Main app not active.";
+        });
+        _errorTimer?.cancel();
+        _errorTimer = Timer(const Duration(seconds: 4), () {
+          if (mounted) {
+            setState(() {
+              _errorMessage = null;
+            });
+          }
+        });
+        await FlutterOverlayWindow.resizeOverlay(140, 140, true);
+      }
     }
   }
 
@@ -799,8 +820,12 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                 ),
                 IconButton(
                   icon: Icon(Icons.exit_to_app, color: errorColor, size: 24),
-                  onPressed: () {
-                    OverlayBridge.send("stop_and_exit");
+                  onPressed: () async {
+                    try {
+                      await OverlayBridge.send("stop_and_exit");
+                    } catch (_) {}
+                    await FlutterOverlayWindow.closeOverlay();
+                    exit(0);
                   },
                   tooltip: 'Stop & Exit',
                 ),
@@ -919,8 +944,44 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   }
 }
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
+  bool _isBatteryOptimizedIgnored = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkBatteryStatus();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkBatteryStatus();
+    }
+  }
+
+  Future<void> _checkBatteryStatus() async {
+    final status = await _captureService.isIgnoringBatteryOptimizations();
+    if (mounted) {
+      setState(() {
+        _isBatteryOptimizedIgnored = status;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -930,68 +991,154 @@ class SettingsScreen extends StatelessWidget {
       ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              "Appearance",
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                "Appearance",
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: ValueListenableBuilder<ThemeMode>(
-                valueListenable: themeNotifier,
-                builder: (context, currentMode, _) {
-                  return Column(
-                    children: [
-                      RadioListTile<ThemeMode>(
-                        title: const Text("Dark Theme"),
-                        value: ThemeMode.dark,
-                        groupValue: currentMode,
-                        onChanged: (mode) async {
-                          if (mode != null) {
-                            themeNotifier.value = mode;
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.setString("theme_mode", mode.name);
-                          }
-                        },
-                      ),
-                      const Divider(height: 1),
-                      RadioListTile<ThemeMode>(
-                        title: const Text("Light Theme"),
-                        value: ThemeMode.light,
-                        groupValue: currentMode,
-                        onChanged: (mode) async {
-                          if (mode != null) {
-                            themeNotifier.value = mode;
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.setString("theme_mode", mode.name);
-                          }
-                        },
-                      ),
-                      const Divider(height: 1),
-                      RadioListTile<ThemeMode>(
-                        title: const Text("System Default"),
-                        value: ThemeMode.system,
-                        groupValue: currentMode,
-                        onChanged: (mode) async {
-                          if (mode != null) {
-                            themeNotifier.value = mode;
-                            final prefs = await SharedPreferences.getInstance();
-                            await prefs.setString("theme_mode", mode.name);
-                          }
-                        },
-                      ),
-                    ],
-                  );
-                },
+              const SizedBox(height: 12),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ValueListenableBuilder<ThemeMode>(
+                  valueListenable: themeNotifier,
+                  builder: (context, currentMode, _) {
+                    return Column(
+                      children: [
+                        RadioListTile<ThemeMode>(
+                          title: const Text("Dark Theme"),
+                          value: ThemeMode.dark,
+                          groupValue: currentMode,
+                          onChanged: (mode) async {
+                            if (mode != null) {
+                              themeNotifier.value = mode;
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setString("theme_mode", mode.name);
+                            }
+                          },
+                        ),
+                        const Divider(height: 1),
+                        RadioListTile<ThemeMode>(
+                          title: const Text("Light Theme"),
+                          value: ThemeMode.light,
+                          groupValue: currentMode,
+                          onChanged: (mode) async {
+                            if (mode != null) {
+                              themeNotifier.value = mode;
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setString("theme_mode", mode.name);
+                            }
+                          },
+                        ),
+                        const Divider(height: 1),
+                        RadioListTile<ThemeMode>(
+                          title: const Text("System Default"),
+                          value: ThemeMode.system,
+                          groupValue: currentMode,
+                          onChanged: (mode) async {
+                            if (mode != null) {
+                              themeNotifier.value = mode;
+                              final prefs = await SharedPreferences.getInstance();
+                              await prefs.setString("theme_mode", mode.name);
+                            }
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 24),
+              Text(
+                "Background Execution",
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  leading: Icon(
+                    _isBatteryOptimizedIgnored ? Icons.battery_charging_full : Icons.battery_alert,
+                    color: _isBatteryOptimizedIgnored ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
+                  ),
+                  title: const Text("Battery Optimization"),
+                  subtitle: Text(
+                    _isBatteryOptimizedIgnored
+                        ? "Excluded (App can run reliably in background)"
+                        : "Optimized (Click to request exclusion)",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _isBatteryOptimizedIgnored ? const Color(0xffa6e3a1) : const Color(0xfff38ba8),
+                    ),
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await _captureService.requestIgnoreBatteryOptimizations();
+                  },
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                "Miscellaneous",
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.feedback),
+                      title: const Text("Feedback"),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _captureService.sendFeedback("1.0.0+1"),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.share),
+                      title: const Text("Share the App"),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _captureService.shareApp(),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.star_rate),
+                      title: const Text("Rate this App"),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _captureService.rateApp(),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.privacy_tip),
+                      title: const Text("Privacy Policy"),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _captureService.openPrivacyPolicy(),
+                    ),
+                    const Divider(height: 1),
+                    const ListTile(
+                      leading: Icon(Icons.info),
+                      title: Text("App Version"),
+                      trailing: Text(
+                        "1.0.0 (1)",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

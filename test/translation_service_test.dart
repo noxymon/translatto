@@ -67,7 +67,7 @@ void main() {
     TranslationService.clearCache();
     service.model = mockModel;
     
-    final result = await service.translateBatch([(text: 'こんにちは', x: 10, y: 20)]);
+    final result = await service.translateBatch([(text: 'こんにちは', x: 10, y: 20, sourceLanguage: 'ja')]);
     
     expect(result, equals(['Hello']));
     expect(mockSession.queries, hasLength(1));
@@ -84,8 +84,8 @@ void main() {
     service.model = mockModel;
     
     final result = await service.translateBatch([
-      (text: 'こんにちは', x: 10, y: 20),
-      (text: '世界', x: 10, y: 80),
+      (text: 'こんにちは', x: 10, y: 20, sourceLanguage: 'ja'),
+      (text: '世界', x: 10, y: 80, sourceLanguage: 'ja'),
     ]);
     
     expect(result, equals(['Hello', 'World']));

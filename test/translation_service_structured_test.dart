@@ -4,8 +4,8 @@ import 'package:screen_translate/translation_service.dart';
 void main() {
   test('buildStructuredPrompt constructs correct XML input', () {
     final blocks = [
-      (text: 'こんにちは', x: 10, y: 20),
-      (text: 'お元気ですか？', x: 10, y: 80),
+      (text: 'こんにちは', x: 10, y: 20, sourceLanguage: 'ja'),
+      (text: 'お元気ですか？', x: 10, y: 80, sourceLanguage: 'ja'),
     ];
 
     final prompt = TranslationService.buildStructuredPrompt(blocks);

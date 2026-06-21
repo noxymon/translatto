@@ -183,8 +183,12 @@ class TranslationService {
   }
 
   /// Translates a single chunk (≤ [_maxChunkChars] chars) in one inference call.
-  Future<String> _translateChunk(String chunk, {required String targetLanguage}) async {
-    final cacheKey = "$targetLanguage:$chunk";
+  Future<String> _translateChunk(
+    String chunk, {
+    required String sourceLanguage,
+    required String targetLanguage,
+  }) async {
+    final cacheKey = "$sourceLanguage:$targetLanguage:$chunk";
     final cached = _translationCache[cacheKey];
     if (cached != null) {
       debugPrint("[TranslationService] Chunk cache HIT: $chunk -> $cached");
@@ -212,13 +216,17 @@ class TranslationService {
     }
   }
 
-  Future<String> translate(String text, {String targetLanguage = "English"}) async {
+  Future<String> translate(
+    String text, {
+    String sourceLanguage = "auto",
+    String targetLanguage = "English",
+  }) async {
     if (!_isInitialized || _model == null) {
       throw StateError('TranslationService is not initialized. Call init() first.');
     }
     
     // Check main text cache hit
-    final cacheKey = "$targetLanguage:$text";
+    final cacheKey = "$sourceLanguage:$targetLanguage:$text";
     final cachedText = _translationCache[cacheKey];
     if (cachedText != null) {
       debugPrint("[TranslationService] Text cache HIT: $text -> $cachedText");
@@ -233,7 +241,11 @@ class TranslationService {
       final chunks = _chunkText(paragraph);
       final translatedChunks = <String>[];
       for (final chunk in chunks) {
-        translatedChunks.add(await _translateChunk(chunk, targetLanguage: targetLanguage));
+        translatedChunks.add(await _translateChunk(
+          chunk,
+          sourceLanguage: sourceLanguage,
+          targetLanguage: targetLanguage,
+        ));
       }
       translatedParagraphs.add(translatedChunks.join(' '));
     }
@@ -250,7 +262,7 @@ class TranslationService {
   }
 
   Future<List<String>> translateBatch(
-    List<({String text, int x, int y})> blocks, {
+    List<({String text, int x, int y, String sourceLanguage})> blocks, {
     String targetLanguage = "English",
     bool Function()? isCancelled,
   }) async {
@@ -264,7 +276,7 @@ class TranslationService {
     final List<String?> cachedResults = List.filled(blocks.length, null);
     bool allCached = true;
     for (int i = 0; i < blocks.length; i++) {
-      final cacheKey = "$targetLanguage:${blocks[i].text}";
+      final cacheKey = "${blocks[i].sourceLanguage}:$targetLanguage:${blocks[i].text}";
       final cachedVal = _translationCache[cacheKey];
       if (cachedVal != null) {
         cachedResults[i] = cachedVal;
@@ -279,7 +291,11 @@ class TranslationService {
     }
 
     if (blocks.length == 1) {
-      final single = await translate(blocks.first.text, targetLanguage: targetLanguage);
+      final single = await translate(
+        blocks.first.text,
+        sourceLanguage: blocks.first.sourceLanguage,
+        targetLanguage: targetLanguage,
+      );
       return [single];
     }
 
@@ -300,7 +316,7 @@ class TranslationService {
           _translationCache.clear();
         }
         for (int i = 0; i < blocks.length; i++) {
-          final cacheKey = "$targetLanguage:${blocks[i].text}";
+          final cacheKey = "${blocks[i].sourceLanguage}:$targetLanguage:${blocks[i].text}";
           _translationCache[cacheKey] = parsed[i];
         }
         return parsed;
@@ -319,7 +335,7 @@ class TranslationService {
   }
 
   Future<List<String>> _fallbackToSequential(
-    List<({String text, int x, int y})> blocks, {
+    List<({String text, int x, int y, String sourceLanguage})> blocks, {
     required String targetLanguage,
     bool Function()? isCancelled,
   }) async {
@@ -327,7 +343,11 @@ class TranslationService {
     for (final block in blocks) {
       if (isCancelled != null && isCancelled()) break;
       try {
-        results.add(await translate(block.text, targetLanguage: targetLanguage));
+        results.add(await translate(
+          block.text,
+          sourceLanguage: block.sourceLanguage,
+          targetLanguage: targetLanguage,
+        ));
       } catch (e) {
         debugPrint("Failed to translate block: ${block.text}, error: $e");
         results.add(block.text); // Original text as last resort
@@ -339,7 +359,7 @@ class TranslationService {
 
   /// Builds a structured XML prompt for batch translation.
   /// [blocks] is a list of records with text and top-left pixel coordinates.
-  static String buildStructuredPrompt(List<({String text, int x, int y})> blocks, [String targetLanguage = "English"]) {
+  static String buildStructuredPrompt(List<({String text, int x, int y, String sourceLanguage})> blocks, [String targetLanguage = "English"]) {
     final buffer = StringBuffer();
     buffer.writeln('Translate the input UI text blocks to $targetLanguage. Use (x,y) for layout context.');
     buffer.writeln('Format: <t id="N">translation</t>');

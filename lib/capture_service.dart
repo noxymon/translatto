@@ -35,6 +35,64 @@ class CaptureService {
     }
   }
 
+  Future<void> minimizeApp() async {
+    try {
+      await _channel.invokeMethod('minimizeApp');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to minimize app: ${e.message}");
+    }
+  }
+
+  Future<void> sendFeedback(String version) async {
+    try {
+      await _channel.invokeMethod('sendFeedback', {'version': version});
+    } on PlatformException catch (e) {
+      debugPrint("Failed to send feedback: ${e.message}");
+    }
+  }
+
+  Future<void> shareApp() async {
+    try {
+      await _channel.invokeMethod('shareApp');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to share app: ${e.message}");
+    }
+  }
+
+  Future<void> rateApp() async {
+    try {
+      await _channel.invokeMethod('rateApp');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to rate app: ${e.message}");
+    }
+  }
+
+  Future<void> openPrivacyPolicy() async {
+    try {
+      await _channel.invokeMethod('openPrivacyPolicy');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to open privacy policy: ${e.message}");
+    }
+  }
+
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    try {
+      final bool? res = await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations');
+      return res ?? false;
+    } on PlatformException catch (e) {
+      debugPrint("Failed to check battery optimization ignore status: ${e.message}");
+      return false;
+    }
+  }
+
+  Future<void> requestIgnoreBatteryOptimizations() async {
+    try {
+      await _channel.invokeMethod('requestIgnoreBatteryOptimizations');
+    } on PlatformException catch (e) {
+      debugPrint("Failed to request ignoring battery optimization: ${e.message}");
+    }
+  }
+
   Future<String?> getDeviceBoard() async {
     try {
       return await _channel.invokeMethod<String>('getDeviceBoard');

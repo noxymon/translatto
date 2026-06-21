@@ -3,7 +3,7 @@ PACKAGE_NAME = id.web.noxymon.translatto
 MODEL_FILE = gemma-4-E2B-it.litertlm
 TARGET_DIR = /data/data/$(PACKAGE_NAME)/app_flutter
 
-.PHONY: push-model debug help
+.PHONY: push-model debug release install-release help
 
 push-model:
 	@echo "Checking connected device $(DEVICE_ID)..."
@@ -24,7 +24,17 @@ debug:
 	@echo "Running app in debug mode on device $(DEVICE_ID)..."
 	flutter run -d $(DEVICE_ID)
 
+release:
+	@echo "Building release APK..."
+	flutter build apk --release
+
+install-release:
+	@echo "Installing release APK to device $(DEVICE_ID)..."
+	adb -s $(DEVICE_ID) install -r build/app/outputs/flutter-apk/app-release.apk
+
 help:
 	@echo "Available commands:"
 	@echo "  make push-model    - Push the local Gemma model to the device $(DEVICE_ID)"
 	@echo "  make debug         - Run the Flutter app in debug mode on device $(DEVICE_ID)"
+	@echo "  make release       - Build release APK"
+	@echo "  make install-release - Install release APK to device $(DEVICE_ID)"

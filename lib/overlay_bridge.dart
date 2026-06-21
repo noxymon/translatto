@@ -20,8 +20,8 @@ class OverlayBridge {
     try {
       await _channel.invokeMethod("send", message);
     } catch (e) {
-      // Print locally in console
       debugPrint("[OverlayBridge] Error sending message: $e");
+      rethrow;
     }
   }
 }

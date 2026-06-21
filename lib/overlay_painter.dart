@@ -4,8 +4,13 @@ import 'package:flutter/material.dart';
 class TranslatedBlock {
   final String text;
   final Rect rect;
+  final int originalLineCount;
 
-  TranslatedBlock({required this.text, required this.rect});
+  TranslatedBlock({
+    required this.text,
+    required this.rect,
+    this.originalLineCount = 1,
+  });
 
   @override
   bool operator ==(Object other) =>
@@ -13,10 +18,11 @@ class TranslatedBlock {
       other is TranslatedBlock &&
           runtimeType == other.runtimeType &&
           text == other.text &&
-          rect == other.rect;
+          rect == other.rect &&
+          originalLineCount == other.originalLineCount;
 
   @override
-  int get hashCode => text.hashCode ^ rect.hashCode;
+  int get hashCode => text.hashCode ^ rect.hashCode ^ originalLineCount.hashCode;
 }
 
 class OverlayPainter extends CustomPainter {
@@ -103,7 +109,12 @@ class OverlayPainter extends CustomPainter {
       // Tight paddings (2px horizontal inner padding on each side, so 4px total)
       final double maxAllowedWidth = (availableWidth - 4.0).clamp(0.0, double.infinity);
       
-      final key = _TextLayoutKey(b.block.text, maxAllowedWidth);
+      final double scaledLineHeight = b.block.originalLineCount > 0
+          ? (b.scaledRect.height / b.block.originalLineCount)
+          : b.scaledRect.height;
+      final double calculatedFontSize = (scaledLineHeight * 0.70).clamp(8.0, 48.0);
+
+      final key = _TextLayoutKey(b.block.text, maxAllowedWidth, calculatedFontSize);
       TextPainter? textPainter = _textPainterCache[key];
       if (textPainter == null) {
         if (_textPainterCache.length >= 100) {
@@ -112,7 +123,7 @@ class OverlayPainter extends CustomPainter {
         textPainter = TextPainter(
           text: TextSpan(
             text: b.block.text,
-            style: const TextStyle(color: Colors.white, fontSize: 12),
+            style: TextStyle(color: Colors.white, fontSize: calculatedFontSize),
           ),
           textDirection: TextDirection.ltr,
         );
@@ -161,19 +172,21 @@ class OverlayPainter extends CustomPainter {
 class _TextLayoutKey {
   final String text;
   final double maxWidth;
+  final double fontSize;
 
-  _TextLayoutKey(this.text, this.maxWidth);
+  _TextLayoutKey(this.text, this.maxWidth, this.fontSize);
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is _TextLayoutKey &&
         other.text == text &&
-        (other.maxWidth - maxWidth).abs() < 0.01;
+        (other.maxWidth - maxWidth).abs() < 0.01 &&
+        (other.fontSize - fontSize).abs() < 0.01;
   }
 
   @override
-  int get hashCode => text.hashCode ^ (maxWidth * 100).round().hashCode;
+  int get hashCode => text.hashCode ^ (maxWidth * 100).round().hashCode ^ (fontSize * 100).round().hashCode;
 }
 
 class _TempBlock {
