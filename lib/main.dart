@@ -361,12 +361,14 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   StreamSubscription? _overlaySubscription;
   String? _errorMessage;
   Timer? _errorTimer;
+  Timer? _translationTimeoutTimer;
 
   @override
   void initState() {
     super.initState();
     // Listen to translation results shared by the main app isolate
     _overlaySubscription = FlutterOverlayWindow.overlayListener.listen((data) {
+      _translationTimeoutTimer?.cancel();
       if (data is Map) {
         if (data["status"] == "no_text") {
           setState(() {
@@ -426,6 +428,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
   void dispose() {
     _overlaySubscription?.cancel();
     _errorTimer?.cancel();
+    _translationTimeoutTimer?.cancel();
     super.dispose();
   }
 
@@ -435,6 +438,26 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
       _isTranslating = true;
       _errorMessage = null;
     });
+
+    // Start a 15-second request watchdog timeout to prevent perpetual spinner if the main app is dead/killed
+    _translationTimeoutTimer?.cancel();
+    _translationTimeoutTimer = Timer(const Duration(seconds: 15), () {
+      if (mounted && _isTranslating) {
+        setState(() {
+          _isTranslating = false;
+          _errorMessage = "Timeout. Please open the main app.";
+        });
+        _errorTimer?.cancel();
+        _errorTimer = Timer(const Duration(seconds: 4), () {
+          if (mounted) {
+            setState(() {
+              _errorMessage = null;
+            });
+          }
+        });
+      }
+    });
+
     // Request translation from the main app isolate
     await FlutterOverlayWindow.shareData("capture");
   }
