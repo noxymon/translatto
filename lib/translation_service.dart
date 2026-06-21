@@ -35,12 +35,14 @@ class TranslationService {
     debugPrint("[TranslationService] Step 2: done.");
 
     // 3. Load active model
-    // maxTokens=512: LiteRT-LM Gemma model has a hard context limit of 512
-    // tokens total (input + output). Exceeding it causes DYNAMIC_UPDATE_SLICE
-    // to fail during KV-cache tensor pre-allocation.
-    debugPrint('[TranslationService] Step 3: getActiveModel(maxTokens=512, preferredBackend: cpu)...');
+    // maxTokens=256: the compiled LiteRT-LM .task file has a hard max_seq_len
+    // baked in at model compile time. CJK text tokenizes at ~1.5 tokens/char,
+    // so 332 chars of formatted prompt ≈ 300-400 tokens which overflows a
+    // 512-slot KV-cache causing DYNAMIC_UPDATE_SLICE to fail at prepare.
+    // 256 gives us ~144 input tokens + headroom for output tokens.
+    debugPrint('[TranslationService] Step 3: getActiveModel(maxTokens=256, preferredBackend: cpu)...');
     _model = await FlutterGemma.getActiveModel(
-      maxTokens: 512,
+      maxTokens: 256,
       preferredBackend: PreferredBackend.cpu,
     );
     debugPrint('[TranslationService] Step 3: done. model=$_model');
@@ -49,18 +51,33 @@ class TranslationService {
     debugPrint("[TranslationService] init() complete.");
   }
 
-  /// Max input characters. Prompt boilerplate ~50 tokens + this text must
-  /// fit within the model's 512-token total context window.
-  static const int _maxInputChars = 200;
+  /// Max input characters before sending to model.
+  /// CJK tokenizes at ~1.5 tokens/char. Formula:
+  ///   60 chars × 1.5 = 90 input tokens
+  ///   + ~50 tokens prompt boilerplate + chat template
+  ///   = ~140 total input tokens → fits in maxTokens=256 KV-cache.
+  static const int _maxInputChars = 60;
+
+  /// Truncates [text] to [_maxInputChars] on a natural Japanese sentence
+  /// boundary (※ bullet or 。) when possible, to avoid mid-sentence cuts.
+  static String _truncateInput(String text) {
+    if (text.length <= _maxInputChars) return text;
+    // Try to cut at a bullet or sentence end within the allowed range.
+    final window = text.substring(0, _maxInputChars);
+    final sentenceEnd = window.lastIndexOf('。');
+    final bulletStart = window.lastIndexOf('※');
+    final cutPoint = [sentenceEnd, bulletStart]
+        .where((i) => i > 10)
+        .fold(-1, (best, i) => i > best ? i : best);
+    return cutPoint > 0 ? window.substring(0, cutPoint + 1) : window;
+  }
 
   Future<String> translate(String japaneseText) async {
     if (!_isInitialized || _model == null) {
       throw StateError('TranslationService is not initialized. Call init() first.');
     }
     // Guard: truncate oversized input to stay within context window.
-    final safeText = japaneseText.length > _maxInputChars
-        ? japaneseText.substring(0, _maxInputChars)
-        : japaneseText;
+    final safeText = _truncateInput(japaneseText);
     debugPrint('[TranslationService] translate() chars=${japaneseText.length}→${safeText.length}');
     final session = await _model!.createSession();
     try {
@@ -139,9 +156,7 @@ class TranslationService {
     for (int i = 0; i < blocks.length; i++) {
       final block = blocks[i];
       // Truncate each block to stay within context budget
-      final safeText = block.text.length > _maxInputChars
-          ? block.text.substring(0, _maxInputChars)
-          : block.text;
+      final safeText = _truncateInput(block.text);
       buffer.writeln('<t id="${i + 1}" x="${block.x}" y="${block.y}">$safeText</t>');
     }
     return buffer.toString();
