@@ -155,7 +155,8 @@ class TranslationService {
 
   /// Translates a single chunk (≤ [_maxChunkChars] chars) in one inference call.
   Future<String> _translateChunk(String chunk, {required String targetLanguage}) async {
-    final cached = _translationCache[chunk];
+    final cacheKey = "$targetLanguage:$chunk";
+    final cached = _translationCache[cacheKey];
     if (cached != null) {
       debugPrint("[TranslationService] Chunk cache HIT: $chunk -> $cached");
       return cached;
@@ -174,7 +175,7 @@ class TranslationService {
       if (_translationCache.length >= 500) {
         _translationCache.clear();
       }
-      _translationCache[chunk] = translated;
+      _translationCache[cacheKey] = translated;
       
       return translated;
     } finally {
@@ -188,7 +189,8 @@ class TranslationService {
     }
     
     // Check main text cache hit
-    final cachedText = _translationCache[text];
+    final cacheKey = "$targetLanguage:$text";
+    final cachedText = _translationCache[cacheKey];
     if (cachedText != null) {
       debugPrint("[TranslationService] Text cache HIT: $text -> $cachedText");
       return cachedText;
@@ -213,7 +215,7 @@ class TranslationService {
     if (_translationCache.length >= 500) {
       _translationCache.clear();
     }
-    _translationCache[text] = finalResult;
+    _translationCache[cacheKey] = finalResult;
 
     return finalResult;
   }
@@ -233,7 +235,8 @@ class TranslationService {
     final List<String?> cachedResults = List.filled(blocks.length, null);
     bool allCached = true;
     for (int i = 0; i < blocks.length; i++) {
-      final cachedVal = _translationCache[blocks[i].text];
+      final cacheKey = "$targetLanguage:${blocks[i].text}";
+      final cachedVal = _translationCache[cacheKey];
       if (cachedVal != null) {
         cachedResults[i] = cachedVal;
       } else {
@@ -264,11 +267,12 @@ class TranslationService {
       final parsed = TranslationService.parseStructuredResponse(response, blocks.length);
       if (parsed != null) {
         // Cache successfully parsed values
+        if (_translationCache.length + blocks.length >= 500) {
+          _translationCache.clear();
+        }
         for (int i = 0; i < blocks.length; i++) {
-          if (_translationCache.length >= 500) {
-            _translationCache.clear();
-          }
-          _translationCache[blocks[i].text] = parsed[i];
+          final cacheKey = "$targetLanguage:${blocks[i].text}";
+          _translationCache[cacheKey] = parsed[i];
         }
         return parsed;
       }

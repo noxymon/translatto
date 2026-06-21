@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_translate/ocr_service.dart';
@@ -231,12 +230,6 @@ Future<void> _initServicesAndListenForCapture() async {
         await _runTranslationFlowAndSendToOverlay();
       } else if (data == "cancel") {
         _cancelRequested = true;
-      } else if (data == "open_app") {
-        try {
-          await const MethodChannel('id.web.noxymon.translatto/capture').invokeMethod('openApp');
-        } catch (e) {
-          debugPrint("Failed to launch main app: $e");
-        }
       } else if (data == "stop_and_exit") {
         await FlutterOverlayWindow.closeOverlay();
         await _captureService.stopCaptureSession();
@@ -362,7 +355,7 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Gemma Screen Translator"),
+        title: const Text("Screen Translator"),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -569,7 +562,15 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
             _isTranslating = false;
             _translations = [];
             _showTranslationLayer = false;
-            _errorMessage = null;
+            _errorMessage = "No text detected.";
+          });
+          _errorTimer?.cancel();
+          _errorTimer = Timer(const Duration(seconds: 4), () {
+            if (mounted) {
+              setState(() {
+                _errorMessage = null;
+              });
+            }
           });
           FlutterOverlayWindow.resizeOverlay(140, 140, true);
         } else if (data["status"] == "no_japanese_text") {
@@ -887,7 +888,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
                             strokeWidth: 3,
                           ),
                         )
-                      : GemmaLogo(size: 36, color: accentColor),
+                      : Icon(Icons.translate, size: 36, color: accentColor),
                 ),
               ),
             ),

@@ -134,5 +134,24 @@ void main() {
     expect(TranslationService.hasJapaneseText('Hello World'), isFalse); // English only
     expect(TranslationService.hasJapaneseText('12345!@#'), isFalse); // Symbols and digits
   });
+
+  test('TranslationService handles language-specific caching correctly', () async {
+    final service = TranslationService();
+    TranslationService.clearCache();
+
+    // First translation to English
+    final mockSessionEn = MockInferenceModelSession('Hello');
+    service.model = MockInferenceModel(mockSessionEn);
+    final resultEn = await service.translate('こんにちは', targetLanguage: 'English');
+    expect(resultEn, equals('Hello'));
+    expect(mockSessionEn.queries.first.text, contains('to English'));
+
+    // Second translation of SAME text to Indonesian
+    final mockSessionId = MockInferenceModelSession('Halo');
+    service.model = MockInferenceModel(mockSessionId);
+    final resultId = await service.translate('こんにちは', targetLanguage: 'Indonesian');
+    expect(resultId, equals('Halo')); // Should NOT hit cache for English
+    expect(mockSessionId.queries.first.text, contains('to Indonesian'));
+  });
 }
 

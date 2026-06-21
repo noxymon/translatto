@@ -8,7 +8,7 @@ void main() {
     await tester.pumpWidget(const MyApp());
 
     // Verify title and main widgets are rendered
-    expect(find.text('Gemma Screen Translator'), findsOneWidget);
+    expect(find.text('Screen Translator'), findsOneWidget);
     expect(find.text('Local Model'), findsOneWidget);
     expect(find.text('Grant Overlay Permission'), findsOneWidget);
     expect(find.text('Start Screen Overlay'), findsOneWidget);
