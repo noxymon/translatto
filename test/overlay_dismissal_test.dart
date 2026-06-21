@@ -28,7 +28,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(bridgeChannel, (MethodCall methodCall) async {
       log.add(methodCall);
-      if (methodCall.method == 'send') {
+      if (methodCall.method == 'send' && methodCall.arguments != 'capture') {
         // Forward message back to the listener on 'onMessage' method
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.handlePlatformMessage(
           'id.web.noxymon.translatto/overlay_bridge',
@@ -149,5 +149,136 @@ void main() {
     final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();
     expect(resizeCalls.length, equals(1));
     expect(resizeCalls.first.arguments['width'], isNot(equals(140)));
+  });
+
+  testWidgets('Tapping trigger FAB immediately triggers resizeOverlay(1, 1, false)', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // Tap trigger FAB
+    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.pump(); // Start execution
+
+    // Check that we immediately called resizeOverlay(1, 1, false)
+    final shrinkCall = log.firstWhere((call) => call.method == 'resizeOverlay');
+    expect(shrinkCall.arguments['width'], equals(1));
+    expect(shrinkCall.arguments['height'], equals(1));
+    expect(shrinkCall.arguments['enableDrag'], isFalse);
+
+    // Clean up: wait 100ms for delay to complete, then cancel the watchdog timer
+    await tester.pump(const Duration(milliseconds: 100));
+    await OverlayBridge.send({"status": "no_text"});
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Successful translation flow resizes to fullscreen', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // Tap trigger FAB and wait 100ms
+    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Send success
+    await OverlayBridge.send({
+      "status": "success",
+      "translations": [
+        {
+          "text": "Hello",
+          "rect": [10.0, 10.0, 100.0, 50.0]
+        }
+      ],
+      "imageWidth": 1080.0,
+      "imageHeight": 1920.0,
+    });
+    await tester.pumpAndSettle();
+
+    // Verify it resized to fullscreen (accounting for test environment devicePixelRatio)
+    final BuildContext context = tester.element(find.byType(OverlayWindowScreen));
+    final double devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
+    final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();
+    expect(resizeCalls.length, equals(2));
+    expect(resizeCalls[1].arguments['width'], equals((1080.0 / devicePixelRatio).round()));
+    expect(resizeCalls[1].arguments['height'], equals((1920.0 / devicePixelRatio).round()));
+    expect(resizeCalls[1].arguments['enableDrag'], isFalse);
+  });
+
+  testWidgets('Failed loop: no text found restores to 140x140', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // Tap trigger FAB and wait 100ms
+    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Simulate "no_text"
+    await OverlayBridge.send({"status": "no_text"});
+    await tester.pumpAndSettle();
+
+    // Verify restoration call
+    final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();
+    expect(resizeCalls.length, equals(2)); // shrink (1x1) + restore (140x140)
+    expect(resizeCalls[1].arguments['width'], equals(140));
+    expect(resizeCalls[1].arguments['height'], equals(140));
+    expect(resizeCalls[1].arguments['enableDrag'], isTrue);
+  });
+
+  testWidgets('Failed loop: error status restores to 140x140 and displays the error message', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // Tap trigger FAB and wait 100ms
+    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Simulate "error"
+    await OverlayBridge.send({
+      "status": "error",
+      "message": "OCR failed"
+    });
+    await tester.pump(); // Render state with error message
+
+    // Verify restoration call
+    final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();
+    expect(resizeCalls.length, equals(2));
+    expect(resizeCalls[1].arguments['width'], equals(140));
+    expect(resizeCalls[1].arguments['height'], equals(140));
+    expect(resizeCalls[1].arguments['enableDrag'], isTrue);
+
+    // Verify error text is displayed
+    expect(find.text("OCR failed"), findsOneWidget);
+
+    // Clean up: let the 4-second message timer complete
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('Watchdog timeout: restores to 140x140 and displays the timeout message after 15s', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: OverlayWindowScreen(),
+    ));
+
+    // Tap trigger FAB and wait 100ms
+    await tester.tap(find.byIcon(Icons.g_translate));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Advance clock past 15 seconds watchdog limit
+    await tester.pump(const Duration(seconds: 15));
+
+    // Verify watchdog restoration call
+    final resizeCalls = log.where((call) => call.method == 'resizeOverlay').toList();
+    expect(resizeCalls.length, equals(2));
+    expect(resizeCalls[1].arguments['width'], equals(140));
+    expect(resizeCalls[1].arguments['height'], equals(140));
+    expect(resizeCalls[1].arguments['enableDrag'], isTrue);
+
+    // Verify timeout message is displayed
+    expect(find.text("Timeout. Please open the main app."), findsOneWidget);
+
+    // Clean up: let the 4-second message timer complete
+    await tester.pump(const Duration(seconds: 4));
   });
 }

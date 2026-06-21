@@ -392,6 +392,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
             _showTranslationLayer = false;
             _errorMessage = null;
           });
+          FlutterOverlayWindow.resizeOverlay(140, 140, true);
         } else if (data["status"] == "error") {
           setState(() {
             _isTranslating = false;
@@ -407,6 +408,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
               });
             }
           });
+          FlutterOverlayWindow.resizeOverlay(140, 140, true);
         } else if (data["status"] == "success") {
           final list = (data["translations"] as List).map((item) {
             final rectList = item["rect"] as List;
@@ -468,6 +470,7 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
           _isTranslating = false;
           _errorMessage = "Timeout. Please open the main app.";
         });
+        FlutterOverlayWindow.resizeOverlay(140, 140, true);
         _errorTimer?.cancel();
         _errorTimer = Timer(const Duration(seconds: 4), () {
           if (mounted) {
@@ -478,6 +481,16 @@ class _OverlayWindowScreenState extends State<OverlayWindowScreen> {
         });
       }
     });
+
+    // Immediately resize overlay to 1x1 on start of translation flow
+    try {
+      await FlutterOverlayWindow.resizeOverlay(1, 1, false);
+    } catch (e) {
+      debugPrint("[Overlay] Failed to resize overlay: $e");
+    }
+
+    // Wait 100 milliseconds
+    await Future.delayed(const Duration(milliseconds: 100));
 
     // Request translation from the main app isolate
     debugPrint("[Overlay] Calling OverlayBridge.send('capture')...");

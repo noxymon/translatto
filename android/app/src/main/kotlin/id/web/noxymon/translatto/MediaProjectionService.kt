@@ -247,6 +247,11 @@ class MediaProjectionService : Service() {
     }
 
     private fun processImageAndReply(image: Image, result: MethodChannel.Result) {
+        var bitmap: Bitmap? = null
+        var cleanBitmap: Bitmap? = null
+        var finalBitmap: Bitmap? = null
+        var finalCropY = 0
+
         try {
             val planes = image.planes
             val buffer = planes[0].buffer
@@ -259,26 +264,88 @@ class MediaProjectionService : Service() {
             val rowPadding = if (pixelStride > 0) rowStride - pixelStride * width else 0
             val padX = if (pixelStride > 0) rowPadding / pixelStride else 0
 
-            val bitmap = Bitmap.createBitmap(
+            bitmap = Bitmap.createBitmap(
                 width + padX,
                 height,
                 Bitmap.Config.ARGB_8888
             )
             bitmap.copyPixelsFromBuffer(buffer)
 
-            val cleanBitmap = if (rowPadding == 0) {
-                bitmap
+            if (rowPadding == 0) {
+                cleanBitmap = bitmap
             } else {
-                val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                cleanBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
                 bitmap.recycle()
-                cropped
+                bitmap = null
             }
+
+            var statusBarHeight = 0
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    val windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+                    val windowInsets = windowManager.currentWindowMetrics.windowInsets
+                    val insets = windowInsets.getInsets(android.view.WindowInsets.Type.statusBars())
+                    statusBarHeight = insets.top
+                } else {
+                    val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                    if (isLandscape) {
+                        statusBarHeight = 0
+                    } else {
+                        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+                        statusBarHeight = if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+                    }
+                }
+            } catch (e: Throwable) {
+                try {
+                    val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+                    statusBarHeight = if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+                } catch (ex: Throwable) {
+                    statusBarHeight = 0
+                }
+            }
+
+            if (statusBarHeight > 0 && statusBarHeight < cleanBitmap.height) {
+                try {
+                    val cropped = Bitmap.createBitmap(
+                        cleanBitmap,
+                        0,
+                        statusBarHeight,
+                        cleanBitmap.width,
+                        cleanBitmap.height - statusBarHeight
+                    )
+                    finalBitmap = cropped
+                    finalCropY = statusBarHeight
+                    if (cropped != cleanBitmap) {
+                        cleanBitmap.recycle()
+                        if (cleanBitmap == bitmap) {
+                            bitmap = null
+                        }
+                        cleanBitmap = null
+                    }
+                } catch (e: Throwable) {
+                    System.gc()
+                    finalBitmap = cleanBitmap
+                    finalCropY = 0
+                }
+            } else {
+                finalBitmap = cleanBitmap
+                finalCropY = 0
+            }
+
+            if (finalBitmap == null) {
+                throw IllegalStateException("finalBitmap is null")
+            }
+
+            val finalWidth = finalBitmap.width
+            val finalHeight = finalBitmap.height
+            val threadBitmap = finalBitmap
+            val threadCropY = finalCropY
 
             Thread {
                 try {
                     val file = File(cacheDir, "screen_capture.jpg")
                     val out = FileOutputStream(file)
-                    cleanBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                    threadBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
                     out.flush()
                     out.close()
                     
@@ -286,8 +353,9 @@ class MediaProjectionService : Service() {
                         // Important fix: Return actual width/height map to guarantee exact AR alignment on rotation
                         val reply = HashMap<String, Any>()
                         reply["path"] = file.absolutePath
-                        reply["width"] = width
-                        reply["height"] = height
+                        reply["width"] = finalWidth
+                        reply["height"] = finalHeight
+                        reply["cropY"] = threadCropY
                         result.success(reply)
                     }
                 } catch (e: Throwable) {
@@ -295,13 +363,20 @@ class MediaProjectionService : Service() {
                         result.error("ERROR", "Failed to save frame: ${e.message}", null)
                     }
                 } finally {
-                    cleanBitmap.recycle()
+                    threadBitmap.recycle()
                     handler.post {
                         isCapturing = false
                     }
                 }
             }.start()
         } catch (e: Throwable) {
+            bitmap?.recycle()
+            if (cleanBitmap != bitmap) {
+                cleanBitmap?.recycle()
+            }
+            if (finalBitmap != cleanBitmap && finalBitmap != bitmap) {
+                finalBitmap?.recycle()
+            }
             handler.post {
                 isCapturing = false
                 result.error("ERROR", "Failed to process image: ${e.message}", null)
