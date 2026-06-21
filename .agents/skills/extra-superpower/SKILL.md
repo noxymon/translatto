@@ -1,5 +1,5 @@
 ---
-name: antigravity-unified
+name: extra-superpower
 description: Use when starting any task in this workspace to configure rtk CLI prefix, caveman ultra terse mode, and superpowers activation rules.
 ---
 
