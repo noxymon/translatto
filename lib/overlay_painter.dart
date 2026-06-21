@@ -65,7 +65,7 @@ class OverlayPainter extends CustomPainter {
       textPainter.layout(maxWidth: textMaxWidth);
 
       final double actualTextWidth = textPainter.width;
-      final double backgroundWidth = actualTextWidth + 8;
+      final double backgroundWidth = actualTextWidth + 4;
       
       final double centerX = scaledRect.left + scaledRect.width / 2;
       double boxLeft = centerX - backgroundWidth / 2;
@@ -78,9 +78,7 @@ class OverlayPainter extends CustomPainter {
         if (boxLeft < 8) boxLeft = 8;
       }
 
-      final dynamicHeight = textPainter.height > scaledRect.height 
-          ? textPainter.height + 4 
-          : scaledRect.height;
+      final dynamicHeight = textPainter.height + 2;
 
       placedBlocks.add(_PlacedBlock(
         block: block,
@@ -120,7 +118,7 @@ class OverlayPainter extends CustomPainter {
       pb.textPainter.paint(
         canvas,
         Offset(
-          pb.boxLeft + 4,
+          pb.boxLeft + 2,
           pb.top + (pb.dynamicHeight - pb.textPainter.height) / 2,
         ),
       );
