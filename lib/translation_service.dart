@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 class TranslationService {
   bool _isInitialized = false;
@@ -134,28 +133,33 @@ class TranslationService {
     return null;
   }
 
-  String buildStructuredPrompt(List<TextBlock> blocks) {
+  /// Builds a structured XML prompt for batch translation.
+  /// [blocks] is a list of records with text and top-left pixel coordinates.
+  static String buildStructuredPrompt(List<({String text, int x, int y})> blocks) {
     final buffer = StringBuffer();
     buffer.writeln("Translate the following Japanese text blocks captured from an Android screen to English.");
     buffer.writeln("The coordinates (x, y) represent their top-left pixel locations on the screen.");
     buffer.writeln("Use these locations to understand the layout context (e.g., adjacent blocks, title vs. body).");
     buffer.writeln("");
-    buffer.writeln("Output ONLY the translated blocks wrapped in matching XML tags: <t id=\"...\"><translation></t>.");
+    buffer.writeln('Output ONLY the translated blocks wrapped in matching XML tags like: <t id="1">translated text</t>.');
     buffer.writeln("Do not include coordinates in the output. Do not write any other explanations.");
     buffer.writeln("");
     buffer.writeln("Input:");
     for (int i = 0; i < blocks.length; i++) {
       final block = blocks[i];
-      final x = block.boundingBox.left.toInt();
-      final y = block.boundingBox.top.toInt();
-      buffer.writeln("<t id=\"${i + 1}\" x=\"$x\" y=\"$y\">${block.text}</t>");
+      buffer.writeln('<t id="${i + 1}" x="${block.x}" y="${block.y}">${block.text}</t>');
     }
     return buffer.toString();
   }
 
-  List<String>? parseStructuredResponse(String response, int expectedCount) {
+  /// Parses the structured XML response from the LLM.
+  /// Returns a list of translations in the same order as the input blocks,
+  /// or null if the response is malformed or incomplete.
+  static List<String>? parseStructuredResponse(String response, int expectedCount) {
     final List<String> results = List.filled(expectedCount, "");
-    final pattern = RegExp(r'<t id="(\d+)">\s*([\s\S]*?)\s*<\/t>');
+    // Match <t id="N"> ... </t> — double-quoted IDs only, matching our prompt format.
+    // Allows optional whitespace around the id value and inside tags.
+    final pattern = RegExp(r'<t\s+id\s*=\s*"(\d+)"\s*>\s*([\s\S]*?)\s*<\/t>');
     final matches = pattern.allMatches(response);
     
     int foundCount = 0;
