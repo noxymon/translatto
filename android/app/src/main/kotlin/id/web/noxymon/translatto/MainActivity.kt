@@ -1,4 +1,4 @@
-package com.example.screen_translate
+package id.web.noxymon.translatto
 
 import android.app.Activity
 import android.content.Context
@@ -10,7 +10,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity: FlutterActivity() {
-    private val CHANNEL = "com.example.screentranslate/capture"
+    private val CHANNEL = "id.web.noxymon.translatto/capture"
     private val REQUEST_CODE = 1001
     private var pendingResult: MethodChannel.Result? = null
     private var mediaProjectionManager: MediaProjectionManager? = null

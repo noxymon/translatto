@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class CaptureService {
-  static const _channel = MethodChannel('com.example.screentranslate/capture');
+  static const _channel = MethodChannel('id.web.noxymon.translatto/capture');
 
   Future<bool> startCaptureSession() async {
     try {

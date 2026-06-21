@@ -1,5 +1,5 @@
 DEVICE_ID ?= a03cc3eb
-PACKAGE_NAME = com.example.screen_translate
+PACKAGE_NAME = id.web.noxymon.translatto
 MODEL_FILE = gemma-4-E2B-it.litertlm
 TARGET_DIR = /data/data/$(PACKAGE_NAME)/app_flutter
 

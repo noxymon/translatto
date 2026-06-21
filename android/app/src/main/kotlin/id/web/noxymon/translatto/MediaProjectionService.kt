@@ -1,4 +1,4 @@
-package com.example.screen_translate
+package id.web.noxymon.translatto
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -78,7 +78,6 @@ class MediaProjectionService : Service() {
         val density: Int
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Using maximumWindowMetrics to correctly scale full physical screen dimensions
             val windowMetrics = windowManager.maximumWindowMetrics
             val bounds = windowMetrics.bounds
             width = bounds.width()
@@ -105,7 +104,6 @@ class MediaProjectionService : Service() {
             }
             mediaProjection = projection
 
-            // Use 2 buffers for ImageReader queue to optimize memory and capture performance
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
             virtualDisplay = projection.createVirtualDisplay(
                 "ScreenCapture",
@@ -139,7 +137,6 @@ class MediaProjectionService : Service() {
         }
         isCapturing = true
 
-        // Implement frame watchdog timeout of 1000ms to prevent infinite UI loader hangs
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val timeoutRunnable = Runnable {
             if (isCapturing) {
@@ -212,7 +209,6 @@ class MediaProjectionService : Service() {
 
             Thread {
                 try {
-                    // Use JPEG compression instead of PNG to improve performance by 10x
                     val file = File(cacheDir, "screen_capture.jpg")
                     val out = FileOutputStream(file)
                     cleanBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
@@ -234,7 +230,6 @@ class MediaProjectionService : Service() {
                 }
             }.start()
         } catch (e: Throwable) {
-            // Catch Throwable instead of Exception to intercept OutOfMemoryErrors safely
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 isCapturing = false
                 result.error("ERROR", "Failed to process image: ${e.message}", null)
