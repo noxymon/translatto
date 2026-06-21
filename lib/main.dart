@@ -131,21 +131,21 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
     _isTranslationInProgress = true;
 
     try {
-      final path = await _captureService.captureScreen();
-      if (path == null) {
+      final captureData = await _captureService.captureScreen();
+      if (captureData == null) {
         await FlutterOverlayWindow.shareData({"status": "no_text"});
         return;
       }
+
+      final path = captureData['path'] as String;
+      final imageWidth = (captureData['width'] as num).toDouble();
+      final imageHeight = (captureData['height'] as num).toDouble();
 
       final ocrBlocks = await _ocrService.extractText(path);
       if (ocrBlocks.isEmpty) {
         await FlutterOverlayWindow.shareData({"status": "no_text"});
         return;
       }
-
-      // Get screen physical dimensions dynamically
-      final view = WidgetsBinding.instance.platformDispatcher.views.first;
-      final physicalSize = view.physicalSize;
 
       // Extract text blocks for batched translation
       final rawTexts = ocrBlocks.map((b) => b.text).toList();
@@ -168,8 +168,8 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
       await FlutterOverlayWindow.shareData({
         "status": "success",
         "translations": list,
-        "imageWidth": physicalSize.width,
-        "imageHeight": physicalSize.height,
+        "imageWidth": imageWidth,
+        "imageHeight": imageHeight,
       });
 
     } catch (e) {

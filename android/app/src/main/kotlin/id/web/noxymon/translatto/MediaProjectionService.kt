@@ -16,7 +16,9 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
@@ -30,6 +32,7 @@ class MediaProjectionService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var isCapturing = false
+    private val handler = Handler(Looper.getMainLooper())
 
     companion object {
         var instance: MediaProjectionService? = null
@@ -55,7 +58,14 @@ class MediaProjectionService : Service() {
         }
 
         val resultCode = intent?.getIntExtra("resultCode", 0) ?: 0
-        val data = intent?.getParcelableExtra<Intent>("data")
+        
+        // Minor fix: Use API 33+ type-safe getParcelableExtra
+        val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra("data", Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra<Intent>("data")
+        }
         
         if (resultCode != 0 && data != null) {
             setupCaptureSession(resultCode, data)
@@ -102,6 +112,15 @@ class MediaProjectionService : Service() {
                 stopSelf()
                 return
             }
+            
+            // Important fix: Register a callback to stop the service cleanly if terminated from the system status bar
+            projection.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    cleanupResources()
+                    stopSelf()
+                }
+            }, handler)
+            
             mediaProjection = projection
 
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
@@ -124,7 +143,53 @@ class MediaProjectionService : Service() {
         }
     }
 
+    // Lazy display recreation helper on orientation/dimension change
+    private fun checkAndRecreateDisplayIfNeeded(width: Int, height: Int) {
+        val reader = imageReader ?: return
+        if (reader.width != width || reader.height != height) {
+            val density = resources.configuration.densityDpi
+            try {
+                imageReader?.setOnImageAvailableListener(null, null)
+                imageReader?.close()
+                virtualDisplay?.release()
+
+                imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+                virtualDisplay = mediaProjection?.createVirtualDisplay(
+                    "ScreenCapture",
+                    width,
+                    height,
+                    density,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    imageReader?.surface,
+                    null,
+                    null
+                )
+            } catch (e: Throwable) {
+                // Ignore failure on lazy recreation
+            }
+        }
+    }
+
     fun captureScreenFrame(result: MethodChannel.Result) {
+        val windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+        val currentWidth: Int
+        val currentHeight: Int
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val windowMetrics = windowManager.maximumWindowMetrics
+            val bounds = windowMetrics.bounds
+            currentWidth = bounds.width()
+            currentHeight = bounds.height()
+        } else {
+            val metrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            currentWidth = metrics.widthPixels
+            currentHeight = metrics.heightPixels
+        }
+
+        // Important fix: Recreate capture session if screen orientation/dimension changes
+        checkAndRecreateDisplayIfNeeded(currentWidth, currentHeight)
+
         val reader = imageReader
         if (reader == null) {
             result.error("ERROR", "Capture session not active", null)
@@ -137,7 +202,6 @@ class MediaProjectionService : Service() {
         }
         isCapturing = true
 
-        val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val timeoutRunnable = Runnable {
             if (isCapturing) {
                 reader.setOnImageAvailableListener(null, null)
@@ -190,10 +254,13 @@ class MediaProjectionService : Service() {
             val rowStride = planes[0].rowStride
             val width = image.width
             val height = image.height
-            val rowPadding = rowStride - pixelStride * width
+            
+            // Minor fix: Wrap in defensive check to avoid division by zero
+            val rowPadding = if (pixelStride > 0) rowStride - pixelStride * width else 0
+            val padX = if (pixelStride > 0) rowPadding / pixelStride else 0
 
             val bitmap = Bitmap.createBitmap(
-                width + rowPadding / pixelStride,
+                width + padX,
                 height,
                 Bitmap.Config.ARGB_8888
             )
@@ -215,22 +282,27 @@ class MediaProjectionService : Service() {
                     out.flush()
                     out.close()
                     
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        result.success(file.absolutePath)
+                    handler.post {
+                        // Important fix: Return actual width/height map to guarantee exact AR alignment on rotation
+                        val reply = HashMap<String, Any>()
+                        reply["path"] = file.absolutePath
+                        reply["width"] = width
+                        reply["height"] = height
+                        result.success(reply)
                     }
                 } catch (e: Throwable) {
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    handler.post {
                         result.error("ERROR", "Failed to save frame: ${e.message}", null)
                     }
                 } finally {
                     cleanBitmap.recycle()
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    handler.post {
                         isCapturing = false
                     }
                 }
             }.start()
         } catch (e: Throwable) {
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
+            handler.post {
                 isCapturing = false
                 result.error("ERROR", "Failed to process image: ${e.message}", null)
             }

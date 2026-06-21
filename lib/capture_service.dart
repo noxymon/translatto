@@ -14,10 +14,13 @@ class CaptureService {
     }
   }
 
-  Future<String?> captureScreen() async {
+  Future<Map<String, dynamic>?> captureScreen() async {
     try {
-      final String? path = await _channel.invokeMethod<String>('captureScreen');
-      return path;
+      final Map? data = await _channel.invokeMethod<Map>('captureScreen');
+      if (data != null) {
+        return Map<String, dynamic>.from(data);
+      }
+      return null;
     } on PlatformException catch (e) {
       debugPrint("Failed to capture screen: ${e.message}");
       return null;
