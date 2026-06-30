@@ -1,13 +1,37 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:http/http.dart' as http;
 
 class TranslationService {
   bool _isInitialized = false;
   InferenceModel? _model;
+  bool _useCloudApi = false;
+  String _apiKey = '';
 
   // Cache to store translated strings mapping Japanese input -> English output
   static final Map<String, String> _translationCache = {};
+
+  // ponytail: minimal fixed system message — shorter prefix = faster KV cache warm
+  static const String _deepSeekSystemPrompt =
+      'Translate accurately. Output only the translation.';
+
+  /// Configure cloud API mode. Call before [init] when using cloud.
+  void configureCloud({required String apiKey}) {
+    _useCloudApi = true;
+    _apiKey = apiKey;
+    _isInitialized = true; // Cloud mode doesn't need local model loading
+  }
+
+  /// Switch to local model mode.
+  void configureLocal() {
+    _useCloudApi = false;
+    _isInitialized = false;
+  }
+
+  bool get isCloudMode => _useCloudApi;
 
   static void clearCache() {
     _translationCache.clear();
@@ -221,8 +245,14 @@ class TranslationService {
     String sourceLanguage = "auto",
     String targetLanguage = "English",
   }) async {
-    if (!_isInitialized || _model == null) {
-      throw StateError('TranslationService is not initialized. Call init() first.');
+    if (!_isInitialized) {
+      throw StateError('TranslationService is not initialized. Call init() or configureCloud() first.');
+    }
+    if (_useCloudApi) {
+      return _translateViaDeepSeek(text, sourceLanguage: sourceLanguage, targetLanguage: targetLanguage);
+    }
+    if (_model == null) {
+      throw StateError('Local model not loaded. Call init() first.');
     }
     
     // Check main text cache hit
@@ -268,8 +298,14 @@ class TranslationService {
   }) async {
     if (blocks.isEmpty) return [];
     if (isCancelled != null && isCancelled()) return [];
-    if (!_isInitialized || _model == null) {
-      throw StateError("TranslationService is not initialized. Call init() first.");
+    if (!_isInitialized) {
+      throw StateError('TranslationService is not initialized. Call init() or configureCloud() first.');
+    }
+    if (_useCloudApi) {
+      return _translateBatchViaDeepSeek(blocks, targetLanguage: targetLanguage);
+    }
+    if (_model == null) {
+      throw StateError('Local model not loaded. Call init() first.');
     }
 
     // Try resolving all blocks from cache first to avoid LLM session overhead
@@ -361,17 +397,16 @@ class TranslationService {
   /// [blocks] is a list of records with text and top-left pixel coordinates.
   static String buildStructuredPrompt(List<({String text, int x, int y, String sourceLanguage})> blocks, [String targetLanguage = "English"]) {
     final buffer = StringBuffer();
-    buffer.writeln('Translate the input UI text blocks to $targetLanguage. Use (x,y) for layout context.');
+    buffer.writeln('Translate the input UI text blocks to $targetLanguage.');
     buffer.writeln('Format: <t id="N">translation</t>');
     buffer.writeln('Output only XML tags. No notes.');
     buffer.writeln('');
     buffer.writeln('Input:');
     for (int i = 0; i < blocks.length; i++) {
       final block = blocks[i];
-      // Use first chunk only in batch XML; oversized blocks are handled
-      // by the sequential fallback path which uses full chunked translation.
+      // ponytail: strip x,y from prompt — pixel coords change every frame, break KV cache
       final safeText = _chunkText(block.text.replaceAll('\n', ' ')).first;
-      buffer.writeln('<t id="${i + 1}" x="${block.x}" y="${block.y}">$safeText</t>');
+      buffer.writeln('<t id="${i + 1}">$safeText</t>');
     }
     return buffer.toString();
   }
@@ -408,6 +443,187 @@ class TranslationService {
       return results;
     }
     return null;
+  }
+
+  /// Calls DeepSeek API with streaming, optimized for KV cache prefix hits.
+  Future<String> _translateViaDeepSeek(
+    String text, {
+    required String sourceLanguage,
+    required String targetLanguage,
+  }) async {
+    final cacheKey = "$sourceLanguage:$targetLanguage:$text";
+    final cached = _translationCache[cacheKey];
+    if (cached != null) return cached;
+
+    // ponytail: constant-system-message prefix for KV cache reuse across requests
+    final messages = [
+      {'role': 'system', 'content': _deepSeekSystemPrompt},
+      {
+        'role': 'user',
+        'content': 'Translate from $sourceLanguage to $targetLanguage:\n$text',
+      },
+    ];
+
+    final body = jsonEncode({
+      'model': 'deepseek-v4-flash',
+      'messages': messages,
+      'thinking': {'type': 'disabled'},
+      'stream': true,
+      'temperature': 0,
+      'max_tokens': 1024,
+    });
+
+    try {
+      final request = http.StreamedRequest(
+        'POST',
+        Uri.parse('https://api.deepseek.com/chat/completions'),
+      );
+      request.headers.addAll({
+        'Authorization': 'Bearer $_apiKey',
+        'Content-Type': 'application/json',
+      });
+      request.sink.add(utf8.encode(body));
+      request.sink.close();
+      final response = await request.send();
+
+      final result = await _parseDeepSeekStream(response.stream);
+
+      if (_translationCache.length >= 500) _translationCache.clear();
+      _translationCache[cacheKey] = result;
+      return result;
+    } catch (e) {
+      debugPrint('[DeepSeek] translate error: $e');
+      rethrow;
+    }
+  }
+
+  /// Parses DeepSeek SSE streaming response, accumulating content deltas.
+  Future<String> _parseDeepSeekStream(http.ByteStream stream) async {
+    final buffer = StringBuffer();
+    final completer = Completer<String>();
+
+    stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen(
+      (line) {
+        if (line.isEmpty || !line.startsWith('data: ')) return;
+        final data = line.substring(6);
+        if (data == '[DONE]') {
+          if (!completer.isCompleted) completer.complete(buffer.toString().trim());
+          return;
+        }
+        try {
+          final json = jsonDecode(data) as Map<String, dynamic>;
+          final choices = json['choices'] as List?;
+          if (choices != null && choices.isNotEmpty) {
+            final delta = choices[0]['delta'] as Map<String, dynamic>?;
+            final content = delta?['content'] as String?;
+            if (content != null) buffer.write(content);
+          }
+        } catch (_) {
+          // Skip malformed JSON chunks
+        }
+      },
+      onError: (e) {
+        if (!completer.isCompleted) completer.completeError(e);
+      },
+      onDone: () {
+        if (!completer.isCompleted) completer.complete(buffer.toString().trim());
+      },
+      cancelOnError: true,
+    );
+
+    return completer.future;
+  }
+
+  /// Batch translation via DeepSeek with XML structured output.
+  Future<List<String>> _translateBatchViaDeepSeek(
+    List<({String text, int x, int y, String sourceLanguage})> blocks, {
+    String targetLanguage = "English",
+  }) async {
+    // Check cache first
+    final List<String?> cachedResults = List.filled(blocks.length, null);
+    bool allCached = true;
+    for (int i = 0; i < blocks.length; i++) {
+      final cacheKey = "${blocks[i].sourceLanguage}:$targetLanguage:${blocks[i].text}";
+      final cachedVal = _translationCache[cacheKey];
+      if (cachedVal != null) {
+        cachedResults[i] = cachedVal;
+      } else {
+        allCached = false;
+      }
+    }
+    if (allCached) return cachedResults.cast<String>();
+
+    // Build structured prompt — same format as local path for cache compatibility
+    final prompt = buildStructuredPrompt(blocks, targetLanguage);
+
+    final messages = [
+      {'role': 'system', 'content': _deepSeekSystemPrompt},
+      {'role': 'user', 'content': prompt},
+    ];
+
+    final body = jsonEncode({
+      'model': 'deepseek-v4-flash',
+      'messages': messages,
+      'thinking': {'type': 'disabled'},
+      'stream': true,
+      'temperature': 0,
+      'max_tokens': 2048,
+    });
+
+    try {
+      final request = http.StreamedRequest(
+        'POST',
+        Uri.parse('https://api.deepseek.com/chat/completions'),
+      );
+      request.headers.addAll({
+        'Authorization': 'Bearer $_apiKey',
+        'Content-Type': 'application/json',
+      });
+      request.sink.add(utf8.encode(body));
+      request.sink.close();
+      final response = await request.send();
+
+      final rawResponse = await _parseDeepSeekStream(response.stream);
+
+      final parsed = parseStructuredResponse(rawResponse, blocks.length);
+      if (parsed != null) {
+        if (_translationCache.length + blocks.length >= 500) _translationCache.clear();
+        for (int i = 0; i < blocks.length; i++) {
+          _translationCache["${blocks[i].sourceLanguage}:$targetLanguage:${blocks[i].text}"] = parsed[i];
+        }
+        return parsed;
+      }
+
+      // Fallback: sequential single translations for unmatched parse
+      debugPrint('[DeepSeek] Batch XML parse failed, falling back to sequential.');
+      return await _fallbackToSequentialViaDeepSeek(blocks, targetLanguage: targetLanguage);
+    } catch (e) {
+      debugPrint('[DeepSeek] Batch translate error: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<String>> _fallbackToSequentialViaDeepSeek(
+    List<({String text, int x, int y, String sourceLanguage})> blocks, {
+    required String targetLanguage,
+  }) async {
+    final results = <String>[];
+    for (final block in blocks) {
+      try {
+        results.add(await _translateViaDeepSeek(
+          block.text,
+          sourceLanguage: block.sourceLanguage,
+          targetLanguage: targetLanguage,
+        ));
+      } catch (e) {
+        debugPrint('[DeepSeek] Sequential fallback error: $e');
+        results.add(block.text);
+      }
+    }
+    return results;
   }
 
   Future<void> dispose() async {

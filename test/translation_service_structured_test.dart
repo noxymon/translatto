@@ -9,8 +9,8 @@ void main() {
     ];
 
     final prompt = TranslationService.buildStructuredPrompt(blocks);
-    expect(prompt, contains('<t id="1" x="10" y="20">こんにちは</t>'));
-    expect(prompt, contains('<t id="2" x="10" y="80">お元気ですか？</t>'));
+    expect(prompt, contains('<t id="1">こんにちは</t>'));
+    expect(prompt, contains('<t id="2">お元気ですか？</t>'));
     expect(prompt, contains('to English'));
   });
 

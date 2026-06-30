@@ -90,8 +90,8 @@ void main() {
     
     expect(result, equals(['Hello', 'World']));
     expect(mockSession.queries, hasLength(1));
-    expect(mockSession.queries.first.text, contains('<t id="1" x="10" y="20">こんにちは</t>'));
-    expect(mockSession.queries.first.text, contains('<t id="2" x="10" y="80">世界</t>'));
+    expect(mockSession.queries.first.text, contains('<t id="1">こんにちは</t>'));
+    expect(mockSession.queries.first.text, contains('<t id="2">世界</t>'));
     expect(mockSession.isClosed, isTrue);
   });
 

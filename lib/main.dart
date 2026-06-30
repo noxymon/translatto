@@ -27,6 +27,11 @@ void main() async {
   final targetLang = prefs.getString("target_language") ?? "English";
   targetLanguageNotifier.value = targetLang;
 
+  final engine = prefs.getString("translation_engine") ?? "local";
+  translationEngineNotifier.value = engine;
+  final apiKey = prefs.getString("deepseek_api_key") ?? "";
+  deepseekApiKeyNotifier.value = apiKey;
+
   // Start listener and model init in the background; UI starts immediately.
   unawaited(_initServicesAndListenForCapture());
   runApp(const MyApp());
@@ -44,6 +49,8 @@ void overlayMain() {
 
 final themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.dark);
 final targetLanguageNotifier = ValueNotifier<String>("English");
+final translationEngineNotifier = ValueNotifier<String>("local"); // "local" or "cloud"
+final deepseekApiKeyNotifier = ValueNotifier<String>("");
 
 const List<String> supportedLanguages = [
   "English",
@@ -125,7 +132,7 @@ Future<void> _runTranslationFlowAndSendToOverlay() async {
   if (!_modelStatusNotifier.value.ready) {
     await OverlayBridge.send({
       "status": "error",
-      "message": "Local model not ready. Please open the main app dashboard.",
+      "message": "Translation engine not ready. Please open the main app dashboard.",
     });
     return;
   }
@@ -254,25 +261,36 @@ Future<void> _initServicesAndListenForCapture() async {
   });
   debugPrint("[Main] OverlayBridge.messages.listen() registered.");
 
-  final docDir = await getApplicationDocumentsDirectory();
-  final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
-  final modelExists = await File(modelPath).exists();
-
-  if (modelExists) {
-    try {
-      _modelStatusNotifier.value = (ready: false, message: "Loading local model into memory...");
-      final board = await _captureService.getDeviceBoard();
-      await _translationService.init(modelPath, deviceBoard: board);
-      _modelStatusNotifier.value = (ready: true, message: "Local model loaded and ready.");
-      debugPrint("[Main] Model initialized successfully.");
-    } catch (e) {
-      _modelStatusNotifier.value = (ready: false, message: "Failed to load model: $e");
+  if (translationEngineNotifier.value == "cloud") {
+    final apiKey = deepseekApiKeyNotifier.value;
+    if (apiKey.isNotEmpty) {
+      _translationService.configureCloud(apiKey: apiKey);
+      _modelStatusNotifier.value = (ready: true, message: "Cloud translation ready (DeepSeek v4 Flash).");
+      debugPrint("[Main] Cloud translation configured.");
+    } else {
+      _modelStatusNotifier.value = (ready: false, message: "Cloud mode selected but no API key set.\nGo to Settings to add your DeepSeek API key.");
     }
   } else {
-    _modelStatusNotifier.value = (
-      ready: false,
-      message: "Local Model Missing!\nPlace 'gemma-4-E2B-it.litertlm' (2.58 GB) in documents folder:\n$modelPath",
-    );
+    final docDir = await getApplicationDocumentsDirectory();
+    final modelPath = "${docDir.path}/gemma-4-E2B-it.litertlm";
+    final modelExists = await File(modelPath).exists();
+
+    if (modelExists) {
+      try {
+        _modelStatusNotifier.value = (ready: false, message: "Loading local model into memory...");
+        final board = await _captureService.getDeviceBoard();
+        await _translationService.init(modelPath, deviceBoard: board);
+        _modelStatusNotifier.value = (ready: true, message: "Local model loaded and ready.");
+        debugPrint("[Main] Model initialized successfully.");
+      } catch (e) {
+        _modelStatusNotifier.value = (ready: false, message: "Failed to load model: $e");
+      }
+    } else {
+      _modelStatusNotifier.value = (
+        ready: false,
+        message: "Local Model Missing!\nPlace 'gemma-4-E2B-it.litertlm' (2.58 GB) in documents folder:\n$modelPath",
+      );
+    }
   }
 }
 
@@ -432,9 +450,14 @@ class _MainDashboardScreenState extends State<MainDashboardScreen> {
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
-                      const Text(
-                        "Local Model",
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ValueListenableBuilder<String>(
+                        valueListenable: translationEngineNotifier,
+                        builder: (context, engine, _) {
+                          return Text(
+                            engine == "cloud" ? "Cloud Model (DeepSeek)" : "Local Model (Gemma)",
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          );
+                        },
                       ),
                       const SizedBox(height: 12),
                       Row(
@@ -1055,6 +1078,91 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
               ),
               const SizedBox(height: 24),
               Text(
+                "Translation Engine",
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ValueListenableBuilder<String>(
+                  valueListenable: translationEngineNotifier,
+                  builder: (context, engine, _) {
+                    return Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: const Text("Local Model (Gemma 2B)"),
+                          subtitle: const Text("Offline, on-device translation", style: TextStyle(fontSize: 12)),
+                          value: "local",
+                          groupValue: engine,
+                          onChanged: (v) async {
+                            if (v == null) return;
+                            translationEngineNotifier.value = v;
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString("translation_engine", v);
+                            _translationService.configureLocal();
+                            _modelStatusNotifier.value = (ready: false, message: "Switched to local model. Restart required.");
+                          },
+                        ),
+                        const Divider(height: 1),
+                        RadioListTile<String>(
+                          title: const Text("Cloud API (DeepSeek)"),
+                          subtitle: const Text("Fast, high-quality. Requires API key.", style: TextStyle(fontSize: 12)),
+                          value: "cloud",
+                          groupValue: engine,
+                          onChanged: (v) async {
+                            if (v == null) return;
+                            translationEngineNotifier.value = v;
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setString("translation_engine", v);
+                            final apiKey = deepseekApiKeyNotifier.value;
+                            if (apiKey.isNotEmpty) {
+                              _translationService.configureCloud(apiKey: apiKey);
+                              _modelStatusNotifier.value = (ready: true, message: "Cloud translation ready (DeepSeek v4 Flash).");
+                            } else {
+                              _modelStatusNotifier.value = (ready: false, message: "Cloud mode selected but no API key set.");
+                            }
+                          },
+                        ),
+                        if (engine == "cloud")
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            child: ValueListenableBuilder<String>(
+                              valueListenable: deepseekApiKeyNotifier,
+                              builder: (context, apiKey, _) {
+                                return TextField(
+                                  obscureText: true,
+                                  decoration: const InputDecoration(
+                                    labelText: "DeepSeek API Key",
+                                    hintText: "sk-...",
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  controller: TextEditingController(text: apiKey),
+                                  onChanged: (value) async {
+                                    deepseekApiKeyNotifier.value = value;
+                                    final prefs = await SharedPreferences.getInstance();
+                                    await prefs.setString("deepseek_api_key", value);
+                                    if (value.isNotEmpty && translationEngineNotifier.value == "cloud") {
+                                      _translationService.configureCloud(apiKey: value);
+                                      _modelStatusNotifier.value = (ready: true, message: "Cloud translation ready (DeepSeek v4 Flash).");
+                                    } else if (value.isEmpty && translationEngineNotifier.value == "cloud") {
+                                      _modelStatusNotifier.value = (ready: false, message: "Cloud mode selected but no API key set.");
+                                    }
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
                 "Background Execution",
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
@@ -1144,124 +1252,3 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     );
   }
 }
-
-class GemmaLogo extends StatelessWidget {
-  final double size;
-  final Color? color;
-  final bool showBackground;
-
-  const GemmaLogo({
-    super.key,
-    required this.size,
-    this.color,
-    this.showBackground = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: CustomPaint(
-        painter: _GemmaLogoPainter(
-          color: color ?? Theme.of(context).colorScheme.primary,
-          showBackground: showBackground,
-        ),
-      ),
-    );
-  }
-}
-
-class _GemmaLogoPainter extends CustomPainter {
-  final Color color;
-  final bool showBackground;
-
-  _GemmaLogoPainter({
-    required this.color,
-    required this.showBackground,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scale = size.width / 100.0;
-    
-    if (showBackground) {
-      final bgPaint = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.fill;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(10 * scale, 10 * scale, 80 * scale, 80 * scale),
-          Radius.circular(20 * scale),
-        ),
-        bgPaint,
-      );
-    }
-
-    final strokePaint = Paint()
-      ..color = color
-      ..strokeWidth = 7 * 0.75 * scale
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    // Kanji "本" strokes (scaled relative to 100x100)
-    // 1. Vertical stroke M0 -30 V35 -> translate (50, 50) and scale 0.75
-    canvas.drawLine(
-      Offset(50 * scale, (50 - 30 * 0.75) * scale),
-      Offset(50 * scale, (50 + 35 * 0.75) * scale),
-      strokePaint,
-    );
-
-    // 2. Main Horizontal stroke M-35 -5 H35
-    canvas.drawLine(
-      Offset((50 - 35 * 0.75) * scale, (50 - 5 * 0.75) * scale),
-      Offset((50 + 35 * 0.75) * scale, (50 - 5 * 0.75) * scale),
-      strokePaint,
-    );
-
-    // 3. Left Diagonal M0 -5 L-30 30
-    canvas.drawLine(
-      Offset(50 * scale, (50 - 5 * 0.75) * scale),
-      Offset((50 - 30 * 0.75) * scale, (50 + 30 * 0.75) * scale),
-      strokePaint,
-    );
-
-    // 4. Right Diagonal M0 -5 L30 30
-    canvas.drawLine(
-      Offset(50 * scale, (50 - 5 * 0.75) * scale),
-      Offset((50 + 30 * 0.75) * scale, (50 + 30 * 0.75) * scale),
-      strokePaint,
-    );
-
-    // 5. Lower Horizontal M-15 20 H15
-    canvas.drawLine(
-      Offset((50 - 15 * 0.75) * scale, (50 + 20 * 0.75) * scale),
-      Offset((50 + 15 * 0.75) * scale, (50 + 20 * 0.75) * scale),
-      strokePaint,
-    );
-
-    // High-tech accent dot
-    final dotPaint = Paint()
-      ..color = color.withOpacity(0.3)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(28 * scale, 28 * scale), 1.5 * scale, dotPaint);
-
-    // High-tech corner stroke M72 72 L76 76
-    final accentLinePaint = Paint()
-      ..color = color
-      ..strokeWidth = 2.5 * scale
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      Offset(72 * scale, 72 * scale),
-      Offset(76 * scale, 76 * scale),
-      accentLinePaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _GemmaLogoPainter oldDelegate) {
-    return oldDelegate.color != color || oldDelegate.showBackground != showBackground;
-  }
-}
-
-
