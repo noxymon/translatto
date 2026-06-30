@@ -4,5 +4,5 @@
 -dontwarn com.google.mlkit.vision.text.korean.**
 -dontwarn com.google.mlkit.vision.text.devanagari.**
 
-# Keep ML Kit text recognition classes from being stripped
--keep class com.google.mlkit.vision.text.** { *; }
+# Keep ALL ML Kit classes — DI framework spans common + vision packages
+-keep class com.google.mlkit.** { *; }
